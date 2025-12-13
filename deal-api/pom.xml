@@ -71,6 +71,12 @@
             <artifactId>JDA</artifactId>
             <version>5.0.0-beta.24</version>
         </dependency>
+
+        <dependency>
+            <groupId>me.paulschwarz</groupId>
+            <artifactId>spring-dotenv</artifactId>
+            <version>4.0.0</version>
+        </dependency>
     </dependencies>
 
     <build>

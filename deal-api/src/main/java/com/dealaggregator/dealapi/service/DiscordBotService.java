@@ -18,7 +18,7 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
-
+import java.util.Optional;
 
 /**
  * Service class for Discord bot integration.
@@ -115,20 +115,16 @@ public class DiscordBotService extends ListenerAdapter {
             Commands.slash("buy", "Quickly add a contract (e.g. NVDA 150c 30d)")
                 .addOption(OptionType.STRING, "contract", "Format: Ticker Strike+Type Days (e.g. NVDA 150c 30d)", true)
                 .addOption(OptionType.NUMBER, "price", "The price you paid (e.g. 1.50)", true),
-            
-            
-            
             // 5. Portfolio View (REQUIRED for Sell)
             Commands.slash("portfolio", "View your active positions"),
 
             // 6. Sell Position (REQUIRED for Sell)
-            Commands.slash("sell", "Close/Remove a position")
-                .addOption(OptionType.STRING, "ticker", "The Ticker to remove (e.g. NVDA)", true),
+            Commands.slash("sell", "Close a specific position by ID")
+                .addOption(OptionType.INTEGER, "id", "Position ID from /portfolio", true),
 
                 // 7. Analyze (Smart Logic)
-            Commands.slash("analyze", "Fast Analysis (e.g. NVDA 150c 30d)")
-                .addOption(OptionType.STRING, "query", "Format: Ticker Strike+Type Days", true)
-                .addOption(OptionType.NUMBER, "volatility", "Volatility (Optional, default 0.4)", false)
+            Commands.slash("sellall", "Close all positions for a ticker")
+                .addOption(OptionType.STRING, "ticker", "Ticker symbol", true)
         ).queue();
 
     }
@@ -206,30 +202,39 @@ public class DiscordBotService extends ListenerAdapter {
             } else {
                 StringBuilder sb = new StringBuilder();
                 for (Holding h : holdings) {
-                    sb.append(String.format("• **%s** $%s %s (Exp: %s) @ **$%.2f**\n",
-                        h.getTicker(), h.getStrikePrice(), h.getType(), h.getExpiration(), h.getBuyPrice()));
+                    sb.append(String.format("**#%d** %s $%s %s (Exp: %s) @ $%.2f\n",
+                        h.getId(), h.getTicker(), h.getStrikePrice(), h.getType(), h.getExpiration(), h.getBuyPrice()));
                 }
                 eb.setDescription(sb.toString());
+                eb.setFooter("Use /sell <id> to close | /sellall <ticker> to close all");
             }
             event.replyEmbeds(eb.build()).queue();
         } else if (event.getName().equals("sell")) {
-            String ticker = event.getOption("ticker").getAsString().toUpperCase();
+            long id = event.getOption("id").getAsLong();
             String userId = event.getUser().getName();
 
-            List<Holding> userHoldings = holdingService.getHoldings(userId);
-            Holding toRemove = null;
-            for (Holding h : userHoldings) {
-                if (h.getTicker().equals(ticker)) {
-                    toRemove = h;
-                    break;
-                }
-            }
-            if (toRemove != null) {
-                holdingService.removeHolding(toRemove.getId());
-                event.reply("✅ **Closed Position:** Removed " + ticker + " from your portfolio.").queue();
+            Optional<Holding> holdingOpt = holdingService.getHoldingById(id);
+
+            if (holdingOpt.isPresent() && holdingOpt.get().getDiscordUserId().equals(userId)) {
+                Holding h = holdingOpt.get();
+                holdingService.removeHolding(id);
+                event.reply("✅ Closed position #" + id + ": " + h.getTicker() + " $" + h.getStrikePrice() + " " + h.getType()).queue();
             } else {
-                event.reply("❌ You don't have any open positions for **" + ticker + "**.").setEphemeral(true).queue();
-            } 
+                event.reply("❌ Invalid position ID").setEphemeral(true).queue();
+            }
+
+        } else if (event.getName().equals("sellall")) {
+            String ticker = event.getOption("ticker").getAsString();
+            String userId = event.getUser().getName();
+
+            int removedCount = holdingService.removeAllHoldingsByTickerAndUser(userId, ticker);
+
+            if (removedCount > 0) {
+                event.reply("✅ Closed all positions for **" + ticker.toUpperCase() + "** (" + removedCount + " positions)").queue();
+            } else {
+                event.reply("❌ No positions found for **" + ticker.toUpperCase() + "**").setEphemeral(true).queue();
+            }
+            
         } else if (event.getName().equals("analyze")) {
             String query = event.getOption("query").getAsString();
             double volatility = 0.4; // Default volatility

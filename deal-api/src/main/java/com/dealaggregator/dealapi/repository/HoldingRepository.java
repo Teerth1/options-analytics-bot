@@ -33,4 +33,14 @@ public interface HoldingRepository extends JpaRepository<Holding, Long> {
      */
     List<Holding> findByTicker(String ticker);
 
+
+    /**
+     * Deletes all holdings for a specific user and ticker symbol.
+     *
+     * @param userId User ID to filter by
+     * @param ticker Stock ticker symbol to filter by
+     * @return Number of holdings deleted
+     */
+    int deleteByDiscordUserIdAndTicker(String userId, String ticker);
+
 }

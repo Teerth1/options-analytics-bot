@@ -2,6 +2,7 @@ package com.dealaggregator.dealapi.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
@@ -30,8 +31,16 @@ public class HoldingService {
     public List<Holding> getHoldings(String userId) {
         return holdingRepository.findByDiscordUserId(userId);
     }
-
+    
+    public Optional<Holding> getHoldingById(Long id) {
+        return holdingRepository.findById(id);
+    }
     public void removeHolding(Long id) {
         holdingRepository.deleteById(id);
+    }
+
+
+    public int removeAllHoldingsByTickerAndUser(String userId, String ticker) {
+        return holdingRepository.deleteByDiscordUserIdAndTicker(userId, ticker.toUpperCase());
     }
 }
