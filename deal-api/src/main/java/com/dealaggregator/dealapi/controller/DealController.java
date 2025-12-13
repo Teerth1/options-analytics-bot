@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.dealaggregator.dealapi.entity.Deal;
+import com.dealaggregator.dealapi.service.BlackScholesService;
 import com.dealaggregator.dealapi.service.DealScraperService;
 import com.dealaggregator.dealapi.service.DealService;
 
@@ -27,6 +28,7 @@ import com.dealaggregator.dealapi.service.DealService;
 public class DealController {
     private final DealService dealService;
     private final DealScraperService dealScraperService;
+    private final BlackScholesService blackScholesService;
 
     /**
      * Constructor for DealController with dependency injection.
@@ -34,9 +36,10 @@ public class DealController {
      * @param dealService Service layer for deal operations
      * @param dealScrapperService Service layer for web scraping operations
      */
-    public DealController(DealService dealService, DealScraperService dealScrapperService){
+    public DealController(DealService dealService, DealScraperService dealScrapperService, BlackScholesService blackScholesService){
         this.dealScraperService = dealScrapperService;
         this.dealService = dealService;
+        this.blackScholesService = blackScholesService;
     }
 
     /**
@@ -132,6 +135,11 @@ public class DealController {
     @GetMapping("/search")
     public List<Deal> searchDeals(@RequestParam String keyword) {
         return dealService.searchDeals(keyword);
+    }
+
+    @GetMapping("/black-scholes")
+    public double blackScholes(@RequestParam double s, @RequestParam double k, @RequestParam double t, @RequestParam double v, @RequestParam double r, @RequestParam String optionType) {
+        return blackScholesService.blackScholes(s, k, t, v, r, optionType);
     }
 
 

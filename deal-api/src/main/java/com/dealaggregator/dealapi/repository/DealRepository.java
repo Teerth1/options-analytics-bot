@@ -49,5 +49,6 @@ public interface DealRepository extends JpaRepository<Deal, Long> {
      * @return List of deals with price less than the specified amount
      */
     List<Deal> findByPriceLessThan(BigDecimal price);
-
+    
+    
 }
