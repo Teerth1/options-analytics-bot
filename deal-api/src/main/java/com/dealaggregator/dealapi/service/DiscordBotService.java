@@ -1,7 +1,10 @@
 package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,7 +21,9 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+
 import java.util.Optional;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Service class for Discord bot integration.
@@ -129,10 +134,15 @@ public class DiscordBotService extends ListenerAdapter {
             // 8. Analyze (Smart Logic)
             Commands.slash("analyze", "Get live analysis for an option contract")
                 .addOption(OptionType.STRING, "query", "Format: Ticker Strike+Type Days (e.g. NVDA 150c 30d)", true)
-                .addOption(OptionType.NUMBER, "volatility", "Optional: Custom volatility (default 0.4)", false)
+                .addOption(OptionType.NUMBER, "volatility", "Optional: Custom volatility (default 0.4)", false),
+
+            // 9. View Another User's Portfolio
+            Commands.slash("view", "View another user's portfolio")
+                .addOption(OptionType.STRING, "username", "Discord username", true)
         ).queue();
 
     }
+
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
         
@@ -205,10 +215,32 @@ public class DiscordBotService extends ListenerAdapter {
             if (holdings.isEmpty()) {
                 eb.setDescription("No active positions. Use `/buy` to add one.");
             } else {
-                StringBuilder sb = new StringBuilder();
+                Map<String, List<Holding>> grouped = new HashMap<>();
+
                 for (Holding h : holdings) {
-                    sb.append(String.format("**#%d** %s $%s %s (Exp: %s) @ $%.2f\n",
-                        h.getId(), h.getTicker(), h.getStrikePrice(), h.getType(), h.getExpiration(), h.getBuyPrice()));
+                    String key = h.getTicker() + "-" + h.getStrikePrice() + "-" + h.getType();
+                    if (!grouped.containsKey(key)) {
+                        grouped.put(key, new ArrayList<>());
+                    }
+                    grouped.get(key).add(h);
+                }
+                StringBuilder sb = new StringBuilder();
+                for (Map.Entry<String, List<Holding>> entry : grouped.entrySet()) {
+                    List<Holding> contracts = entry.getValue();
+                    Holding first = contracts.get(0);
+                    // Calculate average price
+                    double totalCost = 0;
+                    for (Holding contract : contracts) {
+                        totalCost += contract.getBuyPrice();
+                    }
+                    double avgPrice = totalCost / contracts.size();
+                    sb.append(String.format("**%s** $%s %s (%d contracts) @ avg $%.2f\n",
+                        first.getTicker(),
+                        first.getStrikePrice(),
+                        first.getType().toUpperCase(),
+                        contracts.size(),
+                        avgPrice
+                    ));
                 }
                 eb.setDescription(sb.toString());
                 eb.setFooter("Use /sell <id> to close | /sellall <ticker> to close all");
@@ -231,7 +263,7 @@ public class DiscordBotService extends ListenerAdapter {
         } else if (event.getName().equals("sellall")) {
             String ticker = event.getOption("ticker").getAsString();
             String userId = event.getUser().getName();
-
+            
             int removedCount = holdingService.removeAllHoldingsByTickerAndUser(userId, ticker);
 
             if (removedCount > 0) {
@@ -265,10 +297,51 @@ public class DiscordBotService extends ListenerAdapter {
             } catch (Exception e) {
                 event.reply("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").setEphemeral(true).queue();
             }
-        }   
-            
-            
+        } else if (event.getName().equals("view")) {
+            String username = event.getOption("username").getAsString();
+            List<Holding> holdings = holdingService.getHoldings(username);
+            EmbedBuilder eb = new EmbedBuilder();
+            eb.setTitle("💼 " + username + "'s Portfolio");
+            eb.setColor(Color.decode("#3498db")); // Blue
+
+            if (holdings.isEmpty()) {
+                eb.setDescription("No active positions.");
+            } else {
+                Map<String, List<Holding>> grouped = new HashMap<>();
+
+                for (Holding h : holdings) {
+                    String key = h.getTicker() + "-" + h.getStrikePrice() + "-" + h.getType();
+                    if (!grouped.containsKey(key)) {
+                        grouped.put(key, new ArrayList<>());
+                    }
+                    grouped.get(key).add(h);
+                }
+                StringBuilder sb = new StringBuilder();
+                for (Map.Entry<String, List<Holding>> entry : grouped.entrySet()) {
+                    List<Holding> contracts = entry.getValue();
+                    Holding first = contracts.get(0);
+                    // Calculate average price
+                    double totalCost = 0;
+                    for (Holding contract : contracts) {
+                        totalCost += contract.getBuyPrice();
+                    }
+                    double avgPrice = totalCost / contracts.size();
+                    sb.append(String.format("**%s** $%s %s (%d contracts) @ avg $%.2f\n",
+                        first.getTicker(), 
+                        first.getStrikePrice(), 
+                        first.getType().toUpperCase(),
+                        contracts.size(),
+                        avgPrice
+                    ));
+                }
+                eb.setDescription(sb.toString());
+            }
+            event.replyEmbeds(eb.build()).queue();
+        }
+
+
     }
 
 
 }
+
