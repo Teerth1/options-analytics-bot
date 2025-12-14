@@ -1,27 +1,34 @@
-# Deal Aggregator API
+# Options Trading Discord Bot
 
 [![CI/CD Pipeline](https://github.com/Teerth1/deal-aggregator/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Teerth1/deal-aggregator/actions/workflows/ci-cd.yml)
 
-A Spring Boot application that combines a Discord bot with options trading analysis, deal aggregation from Reddit, and Black-Scholes pricing calculations.
+A powerful Discord bot built with Spring Boot that provides real-time options trading analysis, Black-Scholes pricing, portfolio management, and market data visualization - all accessible through simple slash commands.
 
 ## Features
 
-- **Discord Bot Integration** - 7 slash commands for market analysis
-- **Black-Scholes Calculator** - Option pricing using the Black-Scholes model
-- **Portfolio Management** - Track and manage option positions
-- **Deal Scraper** - Automatically scrapes r/buildapcsales for deals
-- **Live Market Data** - Real-time stock price integration
-- **PostgreSQL Database** - Persistent storage for deals and holdings
+- **Options Portfolio Tracker** - Buy, sell, and monitor your option positions directly in Discord
+- **Black-Scholes Calculator** - Get theoretical option prices using industry-standard pricing models
+- **Live Market Analysis** - Real-time stock prices with automated fair value calculations
+- **Interactive Stock Charts** - Beautiful Finviz chart embeds for technical analysis
+- **Smart Contract Parser** - User-friendly syntax like "NVDA 150c 30d" for quick trades
+- **Deal Aggregation** - Bonus feature: scrapes r/buildapcsales for PC component deals
+- **PostgreSQL Backend** - Persistent storage for all your positions and deal history
 
 ## Discord Commands
 
-- `/stock <ticker>` - View stock chart with live data
-- `/optionprice` - Calculate theoretical option prices
-- `/buy <contract> <price>` - Add option contract to portfolio
-- `/sell <ticker>` - Remove position from portfolio
-- `/portfolio` - View all active positions
-- `/analyze <query>` - Fast analysis with live pricing
-- `/price <product>` - Search for product deals
+### Options Trading
+- `/buy <contract> <price>` - Add option to portfolio (e.g., `/buy NVDA 150c 30d 2.50`)
+- `/sell <id>` - Close a specific position by ID
+- `/sellall <ticker>` - Close all positions for a ticker
+- `/portfolio` - View all active positions with profit/loss tracking
+
+### Market Analysis
+- `/stock <ticker>` - View interactive stock chart with live data
+- `/optionprice` - Calculate Black-Scholes fair value manually
+- `/analyze <contract>` - Get instant analysis with live pricing (e.g., `/analyze AAPL 200c 45d`)
+
+### Deal Hunting
+- `/price <product>` - Search aggregated deals from Reddit
 
 ## Tech Stack
 
@@ -175,11 +182,30 @@ The CI/CD pipeline will automatically run tests on your PR!
 
 This project is licensed under the MIT License.
 
+## Screenshots
+
+```
+💼 Your Portfolio
+━━━━━━━━━━━━━━━━━━━━━
+#1 NVDA $150 CALL (Exp: 2025-01-15) @ $2.50
+#2 AAPL $200 PUT (Exp: 2025-02-01) @ $3.20
+
+Use /sell <id> to close | /sellall <ticker> to close all
+```
+
+## Use Cases
+
+- **Day Traders** - Quickly calculate fair values and track positions
+- **Options Learners** - Experiment with Black-Scholes without paid software
+- **Trading Communities** - Share analysis and positions with your Discord server
+- **Portfolio Journaling** - Keep a record of all your option trades
+
 ## Acknowledgments
 
-- Discord JDA library for bot integration
-- Black-Scholes model for option pricing
-- r/buildapcsales community for deal data
+- **JDA (Java Discord API)** - Discord bot framework
+- **Black-Scholes Model** - Fischer Black & Myron Scholes for option pricing theory
+- **r/buildapcsales** - Reddit community for PC component deals
+- **Finviz** - Free stock charts and technical analysis
 
 ---
 
