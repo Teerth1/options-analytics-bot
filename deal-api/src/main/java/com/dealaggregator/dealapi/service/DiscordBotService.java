@@ -132,8 +132,8 @@ public class DiscordBotService extends ListenerAdapter {
                 .addOption(OptionType.STRING, "ticker", "Ticker symbol", true),
 
             // 8. Analyze (Smart Logic)
-            Commands.slash("analyze", "Get live analysis for an option contract")
-                .addOption(OptionType.STRING, "query", "Format: Ticker Strike+Type Days (e.g. NVDA 150c 30d)", true)
+            Commands.slash("analyze", "Analyze your portfolio or a specific contract")
+                .addOption(OptionType.STRING, "query", "Optional: Contract (e.g. NVDA 150c 30d). Leave empty to analyze portfolio", false)
                 .addOption(OptionType.NUMBER, "volatility", "Optional: Custom volatility (default 0.4)", false),
 
             // 9. View Another User's Portfolio
@@ -273,29 +273,128 @@ public class DiscordBotService extends ListenerAdapter {
             }
             
         } else if (event.getName().equals("analyze")) {
-            String query = event.getOption("query").getAsString();
+            String userId = event.getUser().getName();
             double volatility = 0.4; // Default volatility
             if (event.getOption("volatility") != null) {
                 volatility = event.getOption("volatility").getAsDouble();
             }
-            try {
-                CommandParserService.ParsedOption opt = parserService.parse(query);
-                event.reply("🔍 Fetching live data for **" + opt.ticker + "**...").setEphemeral(true).queue();
-                double currentPrice = marketService.getPrice(opt.ticker);
-                if (currentPrice == 0.0) {
-                    event.getChannel().sendMessage("❌ Could not fetch price for **" + opt.ticker + "**.").queue();
+
+            // Check if query parameter is provided
+            if (event.getOption("query") == null) {
+                // Mode 1: Analyze entire portfolio
+                List<Holding> holdings = holdingService.getHoldings(userId);
+
+                if (holdings.isEmpty()) {
+                    event.reply("❌ You have no positions to analyze. Use `/buy` to add contracts!").setEphemeral(true).queue();
                     return;
                 }
-                double fairValue = bsService.blackScholes(currentPrice, opt.strike, opt.days / 365.0, volatility, 0.05, opt.type);
+
+                event.reply("🔍 Analyzing your portfolio...").setEphemeral(true).queue();
 
                 EmbedBuilder eb = new EmbedBuilder();
-                eb.setTitle("🚀 Fast Analysis: " + opt.ticker + " $" + opt.strike + " " + opt.type.toUpperCase());
-                eb.setColor(Color.MAGENTA);
-                eb.addField("Live Stock Price", "$" + currentPrice, true);
-                eb.addField("Fair Value", "$" + String.format("%.2f", fairValue), true);
+                eb.setTitle("📊 Portfolio Analysis for " + userId);
+                eb.setColor(Color.decode("#9b59b6")); // Purple
+
+                StringBuilder analysis = new StringBuilder();
+                Map<String, List<Holding>> grouped = new HashMap<>();
+
+                // Group by ticker-strike-type
+                for (Holding h : holdings) {
+                    String key = h.getTicker() + "-" + h.getStrikePrice() + "-" + h.getType();
+                    if (!grouped.containsKey(key)) {
+                        grouped.put(key, new ArrayList<>());
+                    }
+                    grouped.get(key).add(h);
+                }
+
+                // Analyze each unique position
+                for (Map.Entry<String, List<Holding>> entry : grouped.entrySet()) {
+                    List<Holding> contracts = entry.getValue();
+                    Holding first = contracts.get(0);
+
+                    try {
+                        double currentPrice = marketService.getPrice(first.getTicker());
+                        if (currentPrice > 0) {
+                            // Calculate days to expiration from the expiration date
+                            long daysToExp = java.time.temporal.ChronoUnit.DAYS.between(
+                                java.time.LocalDate.now(),
+                                first.getExpiration()
+                            );
+
+                            double fairValue = bsService.blackScholes(
+                                currentPrice,
+                                first.getStrikePrice(),
+                                daysToExp / 365.0,
+                                volatility,
+                                0.05,
+                                first.getType().toLowerCase()
+                            );
+
+                            // Calculate average cost
+                            double totalCost = 0;
+                            for (Holding h : contracts) {
+                                totalCost += h.getBuyPrice();
+                            }
+                            double avgCost = totalCost / contracts.size();
+
+                            // Calculate P&L
+                            double plPerContract = fairValue - avgCost;
+                            double totalPL = plPerContract * contracts.size();
+                            double plPercent = (plPerContract / avgCost) * 100;
+
+                            String plEmoji = totalPL >= 0 ? "🟢" : "🔴";
+                            String plSign = totalPL >= 0 ? "+" : "";
+
+                            analysis.append(String.format(
+                                "**%s $%s %s** (%d contracts)\n" +
+                                "Stock: $%.2f | Fair Value: $%.2f\n" +
+                                "Avg Cost: $%.2f | P&L: %s$%.2f (%s%.1f%%) %s\n\n",
+                                first.getTicker(),
+                                first.getStrikePrice(),
+                                first.getType().toUpperCase(),
+                                contracts.size(),
+                                currentPrice,
+                                fairValue,
+                                avgCost,
+                                plSign,
+                                totalPL,
+                                plSign,
+                                plPercent,
+                                plEmoji
+                            ));
+                        }
+                    } catch (Exception e) {
+                        analysis.append(String.format("**%s** - Could not analyze\n\n", first.getTicker()));
+                    }
+                }
+
+                eb.setDescription(analysis.toString());
+                eb.setFooter("Analysis uses Black-Scholes with IV=" + (volatility * 100) + "%");
                 event.getChannel().sendMessageEmbeds(eb.build()).queue();
-            } catch (Exception e) {
-                event.reply("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").setEphemeral(true).queue();
+
+            } else {
+                // Mode 2: Analyze specific contract
+                String query = event.getOption("query").getAsString();
+                try {
+                    CommandParserService.ParsedOption opt = parserService.parse(query);
+                    event.reply("🔍 Fetching live data for **" + opt.ticker + "**...").setEphemeral(true).queue();
+                    double currentPrice = marketService.getPrice(opt.ticker);
+                    if (currentPrice == 0.0) {
+                        event.getChannel().sendMessage("❌ Could not fetch price for **" + opt.ticker + "**.").queue();
+                        return;
+                    }
+                    double fairValue = bsService.blackScholes(currentPrice, opt.strike, opt.days / 365.0, volatility, 0.05, opt.type);
+
+                    EmbedBuilder eb = new EmbedBuilder();
+                    eb.setTitle("🚀 Fast Analysis: " + opt.ticker + " $" + opt.strike + " " + opt.type.toUpperCase());
+                    eb.setColor(Color.MAGENTA);
+                    eb.addField("Live Stock Price", "$" + currentPrice, true);
+                    eb.addField("Fair Value", "$" + String.format("%.2f", fairValue), true);
+                    eb.setFooter("Using volatility: " + (volatility * 100) + "%");
+                    event.getChannel().sendMessageEmbeds(eb.build()).queue();
+                } catch (Exception e) {
+                    event.reply("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").setEphemeral(true).queue();
+                }
             }
         } else if (event.getName().equals("view")) {
             String username = event.getOption("username").getAsString();

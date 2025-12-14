@@ -6,7 +6,9 @@ A powerful Discord bot built with Spring Boot that provides real-time options tr
 
 ## Features
 
+- **Portfolio Analytics with Live P&L** - `/analyze` command shows unrealized profit/loss for all positions with 🟢/🔴 indicators
 - **Options Portfolio Tracker** - Buy, sell, and monitor your option positions directly in Discord
+- **Dollar Cost Averaging (DCA)** - Automatically groups and averages multiple contracts of the same option
 - **Black-Scholes Calculator** - Get theoretical option prices using industry-standard pricing models
 - **Live Market Analysis** - Real-time stock prices with automated fair value calculations
 - **Interactive Stock Charts** - Beautiful Finviz chart embeds for technical analysis
@@ -20,12 +22,14 @@ A powerful Discord bot built with Spring Boot that provides real-time options tr
 - `/buy <contract> <price>` - Add option to portfolio (e.g., `/buy NVDA 150c 30d 2.50`)
 - `/sell <id>` - Close a specific position by ID
 - `/sellall <ticker>` - Close all positions for a ticker
-- `/portfolio` - View all active positions with profit/loss tracking
+- `/portfolio` - View all active positions with DCA averaging
 
-### Market Analysis
+### Market Analysis & Portfolio Analytics
+- `/analyze` - **NEW!** Analyze your entire portfolio with live P&L calculations
+- `/analyze <contract>` - Analyze a specific contract (e.g., `/analyze NVDA 150c 30d`)
 - `/stock <ticker>` - View interactive stock chart with live data
 - `/optionprice` - Calculate Black-Scholes fair value manually
-- `/analyze <contract>` - Get instant analysis with live pricing (e.g., `/analyze AAPL 200c 45d`)
+- `/view <username>` - View another user's portfolio
 
 ### Deal Hunting
 - `/price <product>` - Search aggregated deals from Reddit
@@ -184,13 +188,29 @@ This project is licensed under the MIT License.
 
 ## Screenshots
 
+### Portfolio View (`/portfolio`)
 ```
-💼 Your Portfolio
-━━━━━━━━━━━━━━━━━━━━━
-#1 NVDA $150 CALL (Exp: 2025-01-15) @ $2.50
-#2 AAPL $200 PUT (Exp: 2025-02-01) @ $3.20
+💼 YourUsername's Portfolio
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NVDA $150 CALL (3 contracts) @ avg $2.45
+AAPL $200 PUT (2 contracts) @ avg $4.10
 
 Use /sell <id> to close | /sellall <ticker> to close all
+```
+
+### Portfolio Analysis (`/analyze`)
+```
+📊 Portfolio Analysis for YourUsername
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NVDA $150 CALL (3 contracts)
+Stock: $142.30 | Fair Value: $3.20
+Avg Cost: $2.45 | P&L: +$225 (+30.6%) 🟢
+
+AAPL $200 PUT (2 contracts)
+Stock: $195.50 | Fair Value: $3.80
+Avg Cost: $4.10 | P&L: -$60 (-7.3%) 🔴
+
+Analysis uses Black-Scholes with IV=40%
 ```
 
 ## Use Cases
