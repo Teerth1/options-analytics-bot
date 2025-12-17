@@ -1,0 +1,14 @@
+# Secrets
+application.properties
+*.env
+
+# Build results
+/target/
+/build/
+.gradle/
+.mvn/
+
+# IDEs
+.vscode/
+.idea/
+*.iml

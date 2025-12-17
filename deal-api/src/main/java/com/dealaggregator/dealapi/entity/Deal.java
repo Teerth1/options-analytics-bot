@@ -10,128 +10,186 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
  * Entity class representing a deal in the system.
  *
  * This class maps to the 'deals' table in the database and stores information
- * about product deals from various online retailers. It includes details such as
+ * about product deals from various online retailers. It includes details such
+ * as
  * pricing, vendor information, categories, and automatic timestamp management.
- *
- * Uses Lombok annotations for automatic generation of getters, setters, and constructors.
  */
 @Entity
 @Table(name = "deals")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class Deal{
-    /**
-     * Unique identifier for the deal (primary key).
-     * Auto-generated using database identity strategy.
-     */
+public class Deal {
     @Id
-    @GeneratedValue(strategy=jakarta.persistence.GenerationType.IDENTITY)
-    private Long id ;
+    @GeneratedValue(strategy = jakarta.persistence.GenerationType.IDENTITY)
+    private Long id;
 
-    /**
-     * Title/name of the deal.
-     * Stored as TEXT to handle long titles from scraped content.
-     */
     @Column(nullable = false, columnDefinition = "TEXT")
     private String title;
 
-    /**
-     * Current price of the product in the deal.
-     * Required field stored as BigDecimal for precise currency calculations.
-     */
     @Column(nullable = false)
     private BigDecimal price;
 
-    /**
-     * Original price before discount (if available).
-     * Optional field used to calculate savings.
-     */
     private BigDecimal originalPrice;
 
-    /**
-     * Percentage discount from original price (if available).
-     * Optional field to display savings information.
-     */
     private Integer discountPercentage;
 
-    /**
-     * Name of the vendor/retailer offering the deal.
-     * Examples: Amazon, Newegg, Best Buy, Walmart, etc.
-     */
     @Column(nullable = false)
     private String vendor;
 
-    /**
-     * URL link to the actual deal page.
-     * Stored as TEXT to handle long URLs.
-     */
     @Column(nullable = false, columnDefinition = "TEXT")
     private String dealUrl;
 
-    /**
-     * Category of the product.
-     * Examples: GPU, CPU, Monitor, Storage, etc.
-     */
     @Column(nullable = false)
     private String category;
 
-    /**
-     * Type of deal.
-     * Examples: Online, In-Store, Clearance, etc.
-     */
     @Column(nullable = false)
     private String dealType;
 
-    /**
-     * Additional description or details about the deal.
-     * Optional field stored as TEXT for longer descriptions.
-     */
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    /**
-     * Timestamp when the deal was created in the system.
-     * Automatically set on entity creation.
-     */
     private LocalDateTime createdAt;
-
-    /**
-     * Timestamp when the deal was last updated.
-     * Automatically updated on any entity modification.
-     */
     private LocalDateTime updatedAt;
-
-    /**
-     * Optional expiration timestamp for time-limited deals.
-     */
     private LocalDateTime expiresAt;
 
-    /**
-     * JPA callback method executed before persisting a new deal.
-     * Sets the createdAt and updatedAt timestamps to the current time.
-     */
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
 
-    /**
-     * JPA callback method executed before updating an existing deal.
-     * Updates the updatedAt timestamp to the current time.
-     */
     @PreUpdate
     protected void onUpdate() {
         this.updatedAt = LocalDateTime.now();
     }
 
+    // Constructors
+    public Deal() {
+    }
+
+    public Deal(Long id, String title, BigDecimal price, BigDecimal originalPrice, Integer discountPercentage,
+            String vendor, String dealUrl, String category, String dealType, String description,
+            LocalDateTime createdAt, LocalDateTime updatedAt, LocalDateTime expiresAt) {
+        this.id = id;
+        this.title = title;
+        this.price = price;
+        this.originalPrice = originalPrice;
+        this.discountPercentage = discountPercentage;
+        this.vendor = vendor;
+        this.dealUrl = dealUrl;
+        this.category = category;
+        this.dealType = dealType;
+        this.description = description;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+        this.expiresAt = expiresAt;
+    }
+
+    // Getters and Setters
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+
+    public void setPrice(BigDecimal price) {
+        this.price = price;
+    }
+
+    public BigDecimal getOriginalPrice() {
+        return originalPrice;
+    }
+
+    public void setOriginalPrice(BigDecimal originalPrice) {
+        this.originalPrice = originalPrice;
+    }
+
+    public Integer getDiscountPercentage() {
+        return discountPercentage;
+    }
+
+    public void setDiscountPercentage(Integer discountPercentage) {
+        this.discountPercentage = discountPercentage;
+    }
+
+    public String getVendor() {
+        return vendor;
+    }
+
+    public void setVendor(String vendor) {
+        this.vendor = vendor;
+    }
+
+    public String getDealUrl() {
+        return dealUrl;
+    }
+
+    public void setDealUrl(String dealUrl) {
+        this.dealUrl = dealUrl;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public String getDealType() {
+        return dealType;
+    }
+
+    public void setDealType(String dealType) {
+        this.dealType = dealType;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    public LocalDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(LocalDateTime expiresAt) {
+        this.expiresAt = expiresAt;
+    }
 }
