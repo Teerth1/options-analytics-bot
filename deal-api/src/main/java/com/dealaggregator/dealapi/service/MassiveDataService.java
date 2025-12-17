@@ -88,12 +88,11 @@ public class MassiveDataService {
                 }
             }
         }
-
         return Optional.empty();
     }
 
     public List<OptionContract> fetchOptionsChain(String ticker) {
-        String endpoint = "/snapshot/options/" + ticker + "?limit=250";
+        String endpoint = "/snapshot/options/" + ticker + "?limit=1000";
         try {
             MassiveApiResponse response = restClient
                     .get()
