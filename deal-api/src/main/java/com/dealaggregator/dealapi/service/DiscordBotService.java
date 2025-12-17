@@ -144,7 +144,11 @@ public class DiscordBotService extends ListenerAdapter {
 
                 // 9. View Another User's Portfolio
                 Commands.slash("view", "View another user's portfolio")
-                        .addOption(OptionType.STRING, "username", "Discord username", true))
+                        .addOption(OptionType.STRING, "username", "Discord username", true),
+
+                // 10. Liquidity Check
+                Commands.slash("liquidity", "Check liquidity for a specific contract")
+                        .addOption(OptionType.STRING, "contract", "Contract (e.g. NVDA 150c 30d)", true))
                 .queue();
 
     }
