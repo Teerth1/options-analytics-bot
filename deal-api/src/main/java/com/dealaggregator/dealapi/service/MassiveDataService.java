@@ -61,6 +61,8 @@ public class MassiveDataService {
         // or use a specific endpoint if one exists. For now, fetch chain and filter.
 
         List<OptionContract> chain = fetchOptionsChain(ticker);
+        System.out.println("DEBUG: Fetched " + chain.size() + " contracts for " + ticker);
+        System.out.println("DEBUG: Looking for Strike=" + strike + ", Type=" + type);
 
         // Filter logic
         for (OptionContract contract : chain) {
@@ -70,7 +72,14 @@ public class MassiveDataService {
                 // We'd also check expiration days ideally.
                 // For simplicity, just matching strike and type for now.
 
-                if (cStrike != null && cStrike == strike &&
+                // Debug matching strike
+                if (cStrike != null && Math.abs(cStrike - strike) < 0.01) {
+                    System.out.println(
+                            "DEBUG: Found matching strike " + cStrike + ". Type: " + cType + " (Expected: " + type
+                                    + ")");
+                }
+
+                if (cStrike != null && Math.abs(cStrike - strike) < 0.01 &&
                         cType != null && cType.equalsIgnoreCase(type)) {
 
                     double bid = contract.last_quote() != null && contract.last_quote().bid() != null
@@ -88,6 +97,7 @@ public class MassiveDataService {
                 }
             }
         }
+        System.out.println("DEBUG: No matching contract found.");
         return Optional.empty();
     }
 
