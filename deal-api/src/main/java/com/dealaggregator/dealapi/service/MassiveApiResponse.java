@@ -1,4 +1,4 @@
-package com.dealaggregator.dealapi.dto;
+package com.dealaggregator.dealapi.service;
 
 import java.util.List;
 
@@ -13,8 +13,8 @@ import java.util.List;
  * }
  */
 public record MassiveApiResponse(
-        String status,
-        List<OptionContract> results,
-        String next_url // Used for pagination
+                String status,
+                List<OptionContract> results,
+                String next_url // Used for pagination
 ) {
 }
