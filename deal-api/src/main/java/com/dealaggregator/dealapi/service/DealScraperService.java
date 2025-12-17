@@ -1,4 +1,5 @@
 package com.dealaggregator.dealapi.service;
+
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.jsoup.nodes.Element;
@@ -21,6 +22,7 @@ import com.dealaggregator.dealapi.entity.Deal;
  * information, identifies vendors, and saves deals to the database.
  *
  * The scraping runs automatically on a scheduled basis using Spring's
+ * 
  * @Scheduled annotation.
  */
 @Service
@@ -82,7 +84,8 @@ public class DealScraperService {
      * for large amounts.
      *
      * @param title Deal title containing price information
-     * @return BigDecimal representing the extracted price, or BigDecimal.ZERO if no price found
+     * @return BigDecimal representing the extracted price, or BigDecimal.ZERO if no
+     *         price found
      */
     private BigDecimal extractPrice(String title) {
         try {
@@ -108,7 +111,8 @@ public class DealScraperService {
      * category from within the brackets.
      *
      * @param title Deal title containing category tag
-     * @return Category name (e.g., "GPU", "CPU") or "Other" if no category tag found
+     * @return Category name (e.g., "GPU", "CPU") or "Other" if no category tag
+     *         found
      */
     private String extractCategory(String title) {
         if (title.startsWith("[")) {
@@ -125,7 +129,8 @@ public class DealScraperService {
      *
      * This method runs automatically every 60 seconds (60000ms) as specified by
      * the @Scheduled annotation. It connects to the old Reddit interface, parses
-     * the HTML structure, extracts deal information, and saves each deal to the database.
+     * the HTML structure, extracts deal information, and saves each deal to the
+     * database.
      *
      * The scraper extracts:
      * - Deal title
@@ -134,17 +139,18 @@ public class DealScraperService {
      * - Category (from title tag)
      * - Price (parsed from title)
      *
-     * All scraped deals are automatically saved to the database with deal type "Online".
+     * All scraped deals are automatically saved to the database with deal type
+     * "Online".
      */
     @Scheduled(fixedRate = 60000)
     public void scrapeReddit() {
         try {
             // Connect to Reddit with a user agent (required for scraping)
-            Document doc = Jsoup.connect("https://old.reddit.com/r/buildapcsales").userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)").get();
+            Document doc = Jsoup.connect("https://old.reddit.com/r/buildapcsales")
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)").get();
 
             // Select all post elements
             Elements posts = doc.select("div.thing");
-            System.out.println("Found " + posts.size() + " posts");
 
             // Process each post
             for (Element post : posts) {
@@ -163,11 +169,9 @@ public class DealScraperService {
 
                 // Save deal to database
                 dealRepo.save(deal);
-
-                System.out.println("Saved: " + title + " from " + deal.getVendor() + " (" + deal.getCategory() + ")");
             }
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             System.out.print("Error: " + e.getMessage());
         }
     }
