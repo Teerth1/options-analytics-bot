@@ -172,7 +172,7 @@ public class DealScraperService {
             }
 
         } catch (Exception e) {
-            System.out.print("Error: " + e.getMessage());
+            // Silently ignore errors
         }
     }
 }
