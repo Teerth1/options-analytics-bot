@@ -199,8 +199,9 @@ public class DiscordBotService extends ListenerAdapter {
     private void liquiditySlash(SlashCommandInteractionEvent event) {
         String query = event.getOption("contract").getAsString();
 
-        // 1. Acknowledge immediately (ephemeral = visible only to user)
-        event.deferReply(true).queue();
+        // 1. Acknowledge immediately (ephemeral = visible only to user, false =
+        // everyone)
+        event.deferReply(false).queue();
 
         try {
             CommandParserService.ParsedOption opt = parserService.parse(query);
