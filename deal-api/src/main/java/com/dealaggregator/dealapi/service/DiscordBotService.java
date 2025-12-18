@@ -198,10 +198,14 @@ public class DiscordBotService extends ListenerAdapter {
 
     private void liquiditySlash(SlashCommandInteractionEvent event) {
         String query = event.getOption("contract").getAsString();
+
+        // 1. Acknowledge immediately (ephemeral = visible only to user)
+        event.deferReply(true).queue();
+
         try {
             CommandParserService.ParsedOption opt = parserService.parse(query);
-            event.reply("🔍 Checking liquidity for **" + opt.ticker + "**...").setEphemeral(true).queue();
 
+            // 2. Fetch Data (this might take > 3 seconds, so deferReply saved us)
             Optional<MassiveDataService.OptionSnapshot> snapshotOpt = massiveService.getOptionSnapshot(opt.ticker,
                     opt.strike, opt.type, opt.days);
 
@@ -223,14 +227,18 @@ public class DiscordBotService extends ListenerAdapter {
                 eb.addField("Volume", String.valueOf(snap.getVolume()), true);
                 eb.addField("Open Interest", String.valueOf(snap.getOpenInterest()), true);
                 eb.addField("Rating", rating, false);
-                eb.setFooter("Spread: $" + (snap.getAsk() - snap.getBid()));
+                eb.setFooter("Spread: $" + String.format("%.2f", (snap.getAsk() - snap.getBid())));
 
-                event.getChannel().sendMessageEmbeds(eb.build()).queue();
+                // 3. Send Result (using hook because we deferred)
+                // setEphemeral(false) here won't work if deferReply was true.
+                // Currently defaults to ephemeral per deferReply(true).
+                event.getHook().sendMessageEmbeds(eb.build()).queue();
             } else {
-                event.getChannel().sendMessage("❌ No data found for this contract.").queue();
+                event.getHook().sendMessage("❌ No data found for this contract.").queue();
             }
         } catch (Exception e) {
-            event.reply("❌ Error: " + e.getMessage()).setEphemeral(true).queue();
+            // Safe error handling
+            event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
         }
     }
 
