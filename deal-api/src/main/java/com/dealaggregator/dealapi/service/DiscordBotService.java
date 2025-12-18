@@ -223,7 +223,7 @@ public class DiscordBotService extends ListenerAdapter {
                     rating = "🔴 POOR";
 
                 EmbedBuilder eb = new EmbedBuilder();
-                eb.setTitle("📈 Liquidity Check: " + opt.ticker);
+                eb.setTitle("📈 Liquidity Check: " + query);
                 eb.setColor(Color.CYAN);
                 eb.addField("Volume", String.valueOf(snap.getVolume()), true);
                 eb.addField("Open Interest", String.valueOf(snap.getOpenInterest()), true);
