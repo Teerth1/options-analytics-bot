@@ -263,6 +263,9 @@ public class DiscordBotService extends ListenerAdapter {
         double price = event.getOption("price").getAsDouble();
         String userId = event.getUser().getName();
 
+        // Defer reply to prevent timeout during database operations
+        event.deferReply().queue();
+
         try {
             CommandParserService.ParsedOption opt = parserService.parse(query);
 
@@ -279,14 +282,15 @@ public class DiscordBotService extends ListenerAdapter {
                     opt.ticker,
                     List.of(leg));
 
-            event.reply(
+            event.getHook().sendMessage(
                     "✅ **Position Opened:** " + opt.ticker + " $" + opt.strike + " " + opt.type.toUpperCase() +
                             " (Exp: " + expiration + ") @ $" + price +
                             "\n📋 Strategy ID: " + strategy.getId())
                     .queue();
 
         } catch (Exception e) {
-            event.reply("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").setEphemeral(true).queue();
+            e.printStackTrace(); // Log for debugging
+            event.getHook().sendMessage("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").queue();
         }
     }
 
