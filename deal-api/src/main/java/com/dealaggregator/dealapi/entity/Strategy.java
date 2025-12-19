@@ -23,7 +23,7 @@ public class Strategy {
     private String status = "OPEN"; // "OPEN" or "CLOSED"
 
     // This creates the 1-to-many relationship with Leg
-    @OneToMany(mappedBy = "strategy", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "strategy", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<Leg> legs = new ArrayList<>();
 
     public Strategy() {
