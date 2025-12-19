@@ -26,9 +26,8 @@ public class Leg {
     public Leg() {
     }
 
-    public Leg(Strategy strategy, String optionType, Double strikePrice, LocalDate expiration, Double entryPrice,
+    public Leg(String optionType, Double strikePrice, LocalDate expiration, Double entryPrice,
             Integer quantity) {
-        this.strategy = strategy;
         this.optionType = optionType;
         this.strikePrice = strikePrice;
         this.expiration = expiration;
