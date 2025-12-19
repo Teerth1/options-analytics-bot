@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.dealaggregator.dealapi.entity.Strategy;
+import com.dealaggregator.dealapi.entity.Leg;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -62,6 +64,7 @@ public class DiscordBotService extends ListenerAdapter {
     private final MarketDataService marketService;
     private final HoldingService holdingService;
     private final MassiveDataService massiveService;
+    private final StrategyService strategyService;
 
     /**
      * Constructor for DiscordBotService with dependency injection.
@@ -69,13 +72,15 @@ public class DiscordBotService extends ListenerAdapter {
      * @param dealRepo Repository for accessing deal data from the database
      */
     public DiscordBotService(DealRepository dealRepo, BlackScholesService bsService, CommandParserService parserService,
-            MarketDataService marketDataService, HoldingService holdingService, MassiveDataService massiveService) {
+            MarketDataService marketDataService, HoldingService holdingService, MassiveDataService massiveService,
+            StrategyService strategyService) {
         this.dealRepo = dealRepo;
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
         this.holdingService = holdingService;
         this.massiveService = massiveService;
+        this.strategyService = strategyService;
     }
 
     /**
@@ -266,11 +271,26 @@ public class DiscordBotService extends ListenerAdapter {
 
         try {
             CommandParserService.ParsedOption opt = parserService.parse(query);
-            holdingService.addHolding(userId, opt.ticker, opt.type, opt.strike, opt.days, price);
+
+            // Calculate expiration date from days
+            java.time.LocalDate expiration = java.time.LocalDate.now().plusDays(opt.days);
+
+            // Create a single leg
+            Leg leg = new Leg(opt.type, opt.strike, expiration, price, 1); // quantity = 1 (long)
+
+            // Create strategy with one leg
+            Strategy strategy = strategyService.openStrategy(
+                    userId,
+                    "SINGLE",
+                    opt.ticker,
+                    java.util.List.of(leg));
+
             event.reply(
-                    "✅ **Added to Portfolio:** " + opt.ticker + " $" + opt.strike + " " + opt.type.toUpperCase() +
-                            " (Exp: " + opt.days + " days) @ $" + price)
+                    "✅ **Position Opened:** " + opt.ticker + " $" + opt.strike + " " + opt.type.toUpperCase() +
+                            " (Exp: " + expiration + ") @ $" + price +
+                            "\n📋 Strategy ID: " + strategy.getId())
                     .queue();
+
         } catch (Exception e) {
             event.reply("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").setEphemeral(true).queue();
         }
