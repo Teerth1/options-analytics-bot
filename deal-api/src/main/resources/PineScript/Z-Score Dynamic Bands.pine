@@ -1,0 +1,227 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Z-Score with Dynamic Bands
+// Adapts band width based on volatility regime and Hurst exponent
+
+//@version=5
+indicator('Z-Score Dynamic Bands', 'Z-Dyn📈', precision=2, max_bars_back=1000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+group1 = 'Z-Score Settings'
+group2 = 'Dynamic Band Settings'
+group3 = 'Display'
+
+src = input.source(close, 'Source', group=group1)
+lookback = input.int(50, 'Lookback Period', minval=10, maxval=500, group=group1)
+maType = input.string('EMA', 'Mean Type', options=['SMA', 'EMA', 'WMA', 'VWMA'], group=group1)
+
+// Dynamic band inputs
+useAdaptive = input.bool(true, 'Use Adaptive Bands', group=group2, tooltip='Adjusts bands based on volatility regime')
+volLookback = input.int(30, 'Volatility Lookback', minval=10, maxval=100, group=group2)
+baseThreshold = input.float(2.0, 'Base Z-Score Threshold', minval=1.0, maxval=4.0, step=0.25, group=group2)
+minThreshold = input.float(1.5, 'Minimum Threshold', minval=0.5, maxval=2.5, step=0.25, group=group2)
+maxThreshold = input.float(3.0, 'Maximum Threshold', minval=2.0, maxval=5.0, step=0.25, group=group2)
+
+// Display inputs
+showHistogram = input.bool(true, 'Show Histogram', group=group3)
+showTable = input.bool(true, 'Show Info Table', group=group3)
+bgColor = input.bool(true, 'Dark Background', group=group3)
+signalMode = input.string('Mean Reversion', 'Signal Mode', options=['Mean Reversion', 'Breakout'], group=group3)
+
+bgcolor(bgColor ? color.new(#000000, 80) : na)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MOVING AVERAGE CALCULATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+ma = switch maType
+    'SMA' => ta.sma(src, lookback)
+    'EMA' => ta.ema(src, lookback)
+    'WMA' => ta.wma(src, lookback)
+    'VWMA' => ta.vwma(src, lookback)
+    => ta.sma(src, lookback)
+
+// Standard deviation
+stdev = ta.stdev(src, lookback)
+
+// Z-Score calculation
+zScore = stdev != 0 ? (src - ma) / stdev : 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VOLATILITY REGIME DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Historical volatility (annualized)
+logReturn = math.log(src / src[1])
+hvol = ta.stdev(logReturn, volLookback) * math.sqrt(252) * 100
+
+// Volatility percentile (where are we relative to history)
+volPercentile = ta.percentrank(hvol, lookback)
+
+// Volatility regime classification
+isLowVol = volPercentile < 25
+isHighVol = volPercentile > 75
+isNormalVol = not isLowVol and not isHighVol
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HURST EXPONENT (Simplified R/S Method)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Simple Hurst approximation using variance ratio
+// H ≈ log(R/S) / log(n) where R/S is rescaled range
+n = lookback
+meanReturn = ta.sma(logReturn, n)
+
+// Cumulative deviation
+var float maxCumDev = 0.0
+var float minCumDev = 0.0
+var float cumDev = 0.0
+
+if bar_index >= n
+    cumDev := 0.0
+    maxCumDev := 0.0
+    minCumDev := 0.0
+    for i = 0 to n - 1
+        cumDev := cumDev + (logReturn[i] - meanReturn)
+        maxCumDev := math.max(maxCumDev, cumDev)
+        minCumDev := math.min(minCumDev, cumDev)
+
+rescaledRange = maxCumDev - minCumDev
+stdReturn = ta.stdev(logReturn, n)
+rs = stdReturn != 0 ? rescaledRange / stdReturn : 0
+
+// Hurst estimate (simplified)
+hurstEstimate = math.log(n) != 0 ? math.log(rs + 0.0001) / math.log(n) * 0.5 + 0.5 : 0.5
+hurstClamped = math.max(0.0, math.min(1.0, hurstEstimate))
+
+// Mean reversion strength (inverted Hurst)
+meanRevStrength = 1 - hurstClamped
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DYNAMIC THRESHOLD CALCULATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+float dynamicThreshold = baseThreshold
+
+if useAdaptive
+    // Adjust based on volatility regime
+    volAdjustment = isHighVol ? 0.5 : isLowVol ? -0.3 : 0.0
+    
+    // Adjust based on mean reversion strength (lower threshold when mean reverting)
+    hurstAdjustment = (meanRevStrength - 0.5) * 1.0  // Range: -0.5 to +0.5
+    
+    dynamicThreshold := baseThreshold + volAdjustment - hurstAdjustment
+    dynamicThreshold := math.max(minThreshold, math.min(maxThreshold, dynamicThreshold))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SIGNALS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Mean Reversion signals (traditional)
+mrOversold = zScore < -dynamicThreshold
+mrOverbought = zScore > dynamicThreshold
+mrBuySignal = ta.crossover(zScore, -dynamicThreshold)
+mrSellSignal = ta.crossunder(zScore, dynamicThreshold)
+
+// Breakout signals (opposite logic)
+boLongSignal = ta.crossover(zScore, dynamicThreshold)
+boShortSignal = ta.crossunder(zScore, -dynamicThreshold)
+
+// Select based on mode
+buySignal = signalMode == 'Mean Reversion' ? mrBuySignal : boLongSignal
+sellSignal = signalMode == 'Mean Reversion' ? mrSellSignal : boShortSignal
+
+// Extreme readings
+extremeOversold = zScore < -3.0
+extremeOverbought = zScore > 3.0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COLORS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Z-Score coloring
+zColor = zScore > dynamicThreshold ? color.red : zScore < -dynamicThreshold ? color.lime : 
+         zScore > 0 ? color.new(color.red, 60) : color.new(color.lime, 60)
+
+// Band coloring (shows if adaptive)
+bandColor = useAdaptive ? 
+    (dynamicThreshold > baseThreshold ? color.orange : dynamicThreshold < baseThreshold ? color.aqua : color.yellow) : 
+    color.yellow
+
+// Regime background
+regimeColor = hurstClamped < 0.45 ? color.new(color.green, 95) : 
+              hurstClamped > 0.55 ? color.new(color.red, 95) : na
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Background for regime
+bgcolor(regimeColor)
+
+// Z-Score plot
+plot(zScore, 'Z-Score', color=zColor, linewidth=2, style=showHistogram ? plot.style_columns : plot.style_line)
+
+// Dynamic threshold bands
+plot(dynamicThreshold, 'Upper Threshold', color=bandColor, linewidth=1, style=plot.style_stepline)
+plot(-dynamicThreshold, 'Lower Threshold', color=bandColor, linewidth=1, style=plot.style_stepline)
+
+// Fixed reference lines
+hline(0, 'Zero', color=color.new(color.white, 50), linestyle=hline.style_solid)
+hline(3, 'Extreme +3σ', color=color.new(color.red, 70), linestyle=hline.style_dotted)
+hline(-3, 'Extreme -3σ', color=color.new(color.lime, 70), linestyle=hline.style_dotted)
+
+// Signals
+plotshape(buySignal, 'Buy', shape.triangleup, location.bottom, color.lime, size=size.small)
+plotshape(sellSignal, 'Sell', shape.triangledown, location.top, color.red, size=size.small)
+
+// Extreme warnings
+plotshape(extremeOversold, 'Extreme Oversold', shape.xcross, location.bottom, color.yellow, size=size.tiny)
+plotshape(extremeOverbought, 'Extreme Overbought', shape.xcross, location.top, color.yellow, size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INFO TABLE
+// ══════════════════════════════════════════════════════════════════════════════
+
+var table infoTable = table.new(position.top_right, 2, 6, bgcolor=color.new(#1a1a2e, 10), frame_color=color.gray, frame_width=1)
+
+if barstate.islast and showTable
+    // Z-Score
+    table.cell(infoTable, 0, 0, 'Z-Score', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 0, str.tostring(math.round(zScore, 2)), text_color=zColor, bgcolor=color.new(zColor, 85))
+    
+    // Dynamic Threshold
+    table.cell(infoTable, 0, 1, 'Threshold', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 1, '±' + str.tostring(math.round(dynamicThreshold, 2)), text_color=bandColor, bgcolor=color.new(color.gray, 70))
+    
+    // Volatility Percentile
+    volColor = isHighVol ? color.red : isLowVol ? color.lime : color.gray
+    table.cell(infoTable, 0, 2, 'Vol %ile', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 2, str.tostring(math.round(volPercentile, 0)) + '%', text_color=volColor, bgcolor=color.new(color.gray, 70))
+    
+    // Hurst Estimate
+    hurstColor = hurstClamped < 0.45 ? color.lime : hurstClamped > 0.55 ? color.red : color.gray
+    table.cell(infoTable, 0, 3, 'Hurst', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 3, str.tostring(math.round(hurstClamped, 2)), text_color=hurstColor, bgcolor=color.new(color.gray, 70))
+    
+    // Regime
+    regimeText = hurstClamped < 0.45 ? 'Mean Revert' : hurstClamped > 0.55 ? 'Trending' : 'Random'
+    table.cell(infoTable, 0, 4, 'Regime', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 4, regimeText, text_color=hurstColor, bgcolor=color.new(hurstColor, 85))
+    
+    // Signal state
+    stateText = mrOverbought ? 'OVERBOUGHT' : mrOversold ? 'OVERSOLD' : 'NEUTRAL'
+    stateColor = mrOverbought ? color.red : mrOversold ? color.lime : color.gray
+    table.cell(infoTable, 0, 5, 'State', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 5, stateText, text_color=stateColor, bgcolor=color.new(stateColor, 85))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(buySignal, 'Buy Signal', 'Z-Score: Buy signal triggered')
+alertcondition(sellSignal, 'Sell Signal', 'Z-Score: Sell signal triggered')
+alertcondition(extremeOversold, 'Extreme Oversold', 'Z-Score: Extreme oversold (<-3σ)')
+alertcondition(extremeOverbought, 'Extreme Overbought', 'Z-Score: Extreme overbought (>3σ)')
+alertcondition(ta.cross(hurstClamped, 0.5), 'Regime Change', 'Z-Score: Market regime change detected')

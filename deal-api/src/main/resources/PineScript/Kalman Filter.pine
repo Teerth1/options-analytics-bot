@@ -1,0 +1,152 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Kalman Filter for Mean Estimation
+// Provides adaptive, noise-filtered estimate of the "true" price level
+
+//@version=5
+indicator('Kalman Filter', 'KF📊', overlay=true, max_bars_back=500)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+group1 = 'Kalman Parameters'
+group2 = 'Display Settings'
+group3 = 'Signal Settings'
+
+src = input.source(close, 'Source', group=group1)
+processNoise = input.float(0.01, 'Process Noise (Q)', minval=0.0001, maxval=1.0, step=0.001, group=group1, 
+     tooltip='Higher = filter adapts faster but is noisier. Lower = smoother but slower to adapt.')
+measureNoise = input.float(1.0, 'Measurement Noise (R)', minval=0.1, maxval=10.0, step=0.1, group=group1,
+     tooltip='Higher = trusts predictions more. Lower = trusts observations more.')
+showBands = input.bool(true, 'Show Uncertainty Bands', group=group2)
+bandWidth = input.float(2.0, 'Band Width (σ)', minval=0.5, maxval=4.0, step=0.5, group=group2)
+showVelocity = input.bool(false, 'Show Velocity Indicator', group=group2)
+signalThreshold = input.float(1.5, 'Signal Threshold (σ)', minval=0.5, maxval=3.0, step=0.25, group=group3)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// KALMAN FILTER IMPLEMENTATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// State variables (using var for persistence)
+var float estimate = na          // Current state estimate (filtered price)
+var float errorCov = 1.0         // Estimation error covariance
+var float velocity = 0.0         // Price velocity (optional state)
+var float velocityCov = 1.0      // Velocity covariance
+
+// Initialize on first bar
+if na(estimate)
+    estimate := src
+    velocity := 0.0
+
+// === PREDICTION STEP ===
+// State transition: x(k|k-1) = x(k-1|k-1) + velocity
+predictedEstimate = estimate + velocity
+predictedErrorCov = errorCov + processNoise
+
+// === UPDATE STEP ===
+// Kalman Gain: K = P(k|k-1) / (P(k|k-1) + R)
+kalmanGain = predictedErrorCov / (predictedErrorCov + measureNoise)
+
+// Innovation (measurement residual)
+innovation = src - predictedEstimate
+
+// Updated state estimate: x(k|k) = x(k|k-1) + K * innovation
+estimate := predictedEstimate + kalmanGain * innovation
+
+// Updated error covariance: P(k|k) = (1 - K) * P(k|k-1)
+errorCov := (1 - kalmanGain) * predictedErrorCov
+
+// Update velocity estimate (simple exponential smoothing)
+velocityGain = 0.1
+velocity := velocity + velocityGain * (src - src[1] - velocity)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UNCERTAINTY BANDS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Standard deviation from error covariance
+uncertainty = math.sqrt(errorCov) * bandWidth * ta.atr(14)
+upperBand = estimate + uncertainty
+lowerBand = estimate - uncertainty
+
+// Normalized distance from estimate (for signals)
+normalizedDev = uncertainty > 0 ? (src - estimate) / (uncertainty / bandWidth) : 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SIGNALS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Mean reversion signals
+oversold = normalizedDev < -signalThreshold
+overbought = normalizedDev > signalThreshold
+
+// Crossover signals
+bullishCross = ta.crossover(src, lowerBand)
+bearishCross = ta.crossunder(src, upperBand)
+
+// Trend following (when price stays above/below estimate)
+trendUp = src > estimate and src[1] > estimate[1]
+trendDown = src < estimate and src[1] < estimate[1]
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COLORS
+// ══════════════════════════════════════════════════════════════════════════════
+
+estimateColor = src > estimate ? color.new(#00ff88, 0) : color.new(#ff4488, 0)
+bandColor = color.new(color.aqua, 80)
+fillColorUp = src > estimate ? color.new(#00ff88, 90) : na
+fillColorDown = src < estimate ? color.new(#ff4488, 90) : na
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Main Kalman estimate
+plotEstimate = plot(estimate, 'Kalman Estimate', color=estimateColor, linewidth=2)
+
+// Uncertainty bands
+plotUpper = plot(showBands ? upperBand : na, 'Upper Band', color=bandColor, linewidth=1, style=plot.style_linebr)
+plotLower = plot(showBands ? lowerBand : na, 'Lower Band', color=bandColor, linewidth=1, style=plot.style_linebr)
+
+// Fill between bands
+fill(plotUpper, plotLower, color=color.new(color.aqua, 95), title='Uncertainty Zone')
+
+// Signals
+plotshape(bullishCross and oversold, 'Strong Buy', shape.labelup, location.belowbar, color.lime, text='K', textcolor=color.white, size=size.small)
+plotshape(bearishCross and overbought, 'Strong Sell', shape.labeldown, location.abovebar, color.red, text='K', textcolor=color.white, size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INFO TABLE
+// ══════════════════════════════════════════════════════════════════════════════
+
+var table infoTable = table.new(position.top_right, 2, 4, bgcolor=color.new(#1a1a2e, 10), frame_color=color.gray, frame_width=1)
+
+if barstate.islast
+    table.cell(infoTable, 0, 0, 'Kalman Est.', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 0, str.tostring(math.round(estimate, 2)), text_color=estimateColor, bgcolor=color.new(color.gray, 70))
+    
+    table.cell(infoTable, 0, 1, 'Deviation', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    devColor = normalizedDev > signalThreshold ? color.red : normalizedDev < -signalThreshold ? color.lime : color.gray
+    table.cell(infoTable, 1, 1, str.tostring(math.round(normalizedDev, 2)) + 'σ', text_color=devColor, bgcolor=color.new(color.gray, 70))
+    
+    table.cell(infoTable, 0, 2, 'K Gain', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 2, str.tostring(math.round(kalmanGain, 3)), text_color=color.aqua, bgcolor=color.new(color.gray, 70))
+    
+    signalText = overbought ? 'OVERBOUGHT' : oversold ? 'OVERSOLD' : 'NEUTRAL'
+    signalColor = overbought ? color.red : oversold ? color.lime : color.gray
+    table.cell(infoTable, 0, 3, 'Signal', text_color=color.white, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 3, signalText, text_color=signalColor, bgcolor=color.new(signalColor, 85))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VELOCITY SUBPLOT (Optional)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Use a separate pane if enabled (commented out for overlay mode)
+// plot(showVelocity ? velocity * 1000 : na, 'Velocity', color=velocity > 0 ? color.lime : color.red, style=plot.style_columns)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════════════
+
+alertcondition(bullishCross and oversold, 'Kalman Buy', 'Kalman Filter: Price crossed above lower band (oversold)')
+alertcondition(bearishCross and overbought, 'Kalman Sell', 'Kalman Filter: Price crossed below upper band (overbought)')
+alertcondition(ta.cross(src, estimate), 'Estimate Cross', 'Kalman Filter: Price crossed the estimate')
