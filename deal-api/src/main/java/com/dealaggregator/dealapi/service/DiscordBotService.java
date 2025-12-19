@@ -1,17 +1,13 @@
 package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import com.dealaggregator.dealapi.entity.Strategy;
 import com.dealaggregator.dealapi.entity.Leg;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import com.dealaggregator.dealapi.entity.Holding;
 
 import jakarta.annotation.PostConstruct;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -22,8 +18,6 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
-
-import java.util.Optional;
 
 /**
  * Service class for Discord bot integration.
@@ -59,7 +53,6 @@ public class DiscordBotService extends ListenerAdapter {
     private final BlackScholesService bsService;
     private final CommandParserService parserService;
     private final MarketDataService marketService;
-    private final HoldingService holdingService;
     private final MassiveDataService massiveService;
     private final StrategyService strategyService;
 
@@ -67,12 +60,11 @@ public class DiscordBotService extends ListenerAdapter {
      * Constructor for DiscordBotService with dependency injection.
      */
     public DiscordBotService(BlackScholesService bsService, CommandParserService parserService,
-            MarketDataService marketDataService, HoldingService holdingService, MassiveDataService massiveService,
+            MarketDataService marketDataService, MassiveDataService massiveService,
             StrategyService strategyService) {
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
-        this.holdingService = holdingService;
         this.massiveService = massiveService;
         this.strategyService = strategyService;
     }
@@ -312,19 +304,32 @@ public class DiscordBotService extends ListenerAdapter {
     }
 
     private void sellAllSlash(SlashCommandInteractionEvent event) {
-        String ticker = event.getOption("ticker").getAsString();
+        String ticker = event.getOption("ticker").getAsString().toUpperCase();
         String userId = event.getUser().getName();
 
-        int removedCount = holdingService.removeAllHoldingsByTickerAndUser(userId, ticker);
+        event.deferReply().queue();
 
-        if (removedCount > 0) {
-            event.reply(
-                    "✅ Closed all positions for **" + ticker.toUpperCase() + "** (" + removedCount + " positions)")
-                    .queue();
-        } else {
-            event.reply("❌ No positions found for **" + ticker.toUpperCase() + "**").setEphemeral(true).queue();
+        try {
+            List<Strategy> strategies = strategyService.getOpenStrategies(userId);
+            int closedCount = 0;
+
+            for (Strategy s : strategies) {
+                if (s.getTicker().equalsIgnoreCase(ticker)) {
+                    strategyService.closeStrategy(s.getId());
+                    closedCount++;
+                }
+            }
+
+            if (closedCount > 0) {
+                event.getHook().sendMessage(
+                        "✅ Closed all positions for **" + ticker + "** (" + closedCount + " strategies)").queue();
+            } else {
+                event.getHook().sendMessage("❌ No positions found for **" + ticker + "**").queue();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
         }
-
     }
 
     private void portfolioSlash(SlashCommandInteractionEvent event) {
@@ -408,103 +413,88 @@ public class DiscordBotService extends ListenerAdapter {
         // Check if query parameter is provided
         if (event.getOption("query") == null) {
             // Mode 1: Analyze entire portfolio
-            List<Holding> holdings = holdingService.getHoldings(userId);
+            event.deferReply().queue();
 
-            if (holdings.isEmpty()) {
-                event.reply("❌ You have no positions to analyze. Use `/buy` to add contracts!").setEphemeral(true)
-                        .queue();
-                return;
-            }
+            try {
+                List<Strategy> strategies = strategyService.getOpenStrategies(userId);
 
-            event.reply("🔍 Analyzing your portfolio...").setEphemeral(true).queue();
-
-            EmbedBuilder eb = new EmbedBuilder();
-            eb.setTitle("📊 Portfolio Analysis for " + userId);
-            eb.setColor(Color.decode("#9b59b6")); // Purple
-
-            StringBuilder analysis = new StringBuilder();
-            Map<String, List<Holding>> grouped = new HashMap<>();
-
-            // Group by ticker-strike-type
-            for (Holding h : holdings) {
-                String key = h.getTicker() + "-" + h.getStrikePrice() + "-" + h.getType();
-                if (!grouped.containsKey(key)) {
-                    grouped.put(key, new ArrayList<>());
+                if (strategies.isEmpty()) {
+                    event.getHook().sendMessage("❌ You have no positions to analyze. Use `/buy` to add contracts!")
+                            .queue();
+                    return;
                 }
-                grouped.get(key).add(h);
-            }
 
-            // Analyze each unique position
-            for (Map.Entry<String, List<Holding>> entry : grouped.entrySet()) {
-                List<Holding> contracts = entry.getValue();
-                Holding first = contracts.get(0);
+                EmbedBuilder eb = new EmbedBuilder();
+                eb.setTitle("📊 Portfolio Analysis for " + userId);
+                eb.setColor(Color.decode("#9b59b6")); // Purple
 
-                try {
-                    double currentPrice = marketService.getPrice(first.getTicker());
-                    if (currentPrice > 0) {
-                        // Calculate days to expiration from the expiration date
-                        long daysToExp = java.time.temporal.ChronoUnit.DAYS.between(
-                                java.time.LocalDate.now(),
-                                first.getExpiration());
+                StringBuilder analysis = new StringBuilder();
+                final double vol = volatility; // For lambda
 
-                        double fairValue = bsService.blackScholes(
-                                currentPrice,
-                                first.getStrikePrice(),
-                                daysToExp / 365.0,
-                                volatility,
-                                0.05,
-                                first.getType().toLowerCase());
+                for (Strategy s : strategies) {
+                    for (Leg leg : s.getLegs()) {
+                        try {
+                            double currentPrice = marketService.getPrice(s.getTicker());
+                            if (currentPrice > 0) {
+                                long daysToExp = java.time.temporal.ChronoUnit.DAYS.between(
+                                        java.time.LocalDate.now(),
+                                        leg.getExpiration());
 
-                        // Calculate average cost
-                        double totalCost = 0;
-                        for (Holding h : contracts) {
-                            totalCost += h.getBuyPrice();
+                                double fairValue = bsService.blackScholes(
+                                        currentPrice,
+                                        leg.getStrikePrice(),
+                                        daysToExp / 365.0,
+                                        vol,
+                                        0.05,
+                                        leg.getOptionType().toLowerCase());
+
+                                double plPerContract = fairValue - leg.getEntryPrice();
+                                double plPercent = (plPerContract / leg.getEntryPrice()) * 100;
+
+                                String plEmoji = plPerContract >= 0 ? "🟢" : "🔴";
+                                String plSign = plPerContract >= 0 ? "+" : "";
+
+                                analysis.append(String.format(
+                                        "**%s $%.0f %s** (Strategy #%d)\n" +
+                                                "Stock: $%.2f | Fair Value: $%.2f\n" +
+                                                "Entry: $%.2f | P&L: %s$%.2f (%s%.1f%%) %s\n\n",
+                                        s.getTicker(),
+                                        leg.getStrikePrice(),
+                                        leg.getOptionType().toUpperCase(),
+                                        s.getId(),
+                                        currentPrice,
+                                        fairValue,
+                                        leg.getEntryPrice(),
+                                        plSign,
+                                        plPerContract,
+                                        plSign,
+                                        plPercent,
+                                        plEmoji));
+                            }
+                        } catch (Exception e) {
+                            analysis.append(String.format("**%s** - Could not analyze\n\n", s.getTicker()));
                         }
-                        double avgCost = totalCost / contracts.size();
-
-                        // Calculate P&L
-                        double plPerContract = fairValue - avgCost;
-                        double totalPL = plPerContract * contracts.size();
-                        double plPercent = (plPerContract / avgCost) * 100;
-
-                        String plEmoji = totalPL >= 0 ? "🟢" : "🔴";
-                        String plSign = totalPL >= 0 ? "+" : "";
-
-                        analysis.append(String.format(
-                                "**%s $%s %s** (%d contracts)\n" +
-                                        "Stock: $%.2f | Fair Value: $%.2f\n" +
-                                        "Avg Cost: $%.2f | P&L: %s$%.2f (%s%.1f%%) %s\n\n",
-                                first.getTicker(),
-                                first.getStrikePrice(),
-                                first.getType().toUpperCase(),
-                                contracts.size(),
-                                currentPrice,
-                                fairValue,
-                                avgCost,
-                                plSign,
-                                totalPL,
-                                plSign,
-                                plPercent,
-                                plEmoji));
                     }
-                } catch (Exception e) {
-                    analysis.append(String.format("**%s** - Could not analyze\n\n", first.getTicker()));
                 }
-            }
 
-            eb.setDescription(analysis.toString());
-            eb.setFooter("Analysis uses Black-Scholes with IV=" + (volatility * 100) + "%");
-            event.getChannel().sendMessageEmbeds(eb.build()).queue();
+                eb.setDescription(analysis.toString());
+                eb.setFooter("Analysis uses Black-Scholes with IV=" + (volatility * 100) + "%");
+                event.getHook().sendMessageEmbeds(eb.build()).queue();
+            } catch (Exception e) {
+                e.printStackTrace();
+                event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
+            }
 
         } else {
             // Mode 2: Analyze specific contract
             String query = event.getOption("query").getAsString();
+            event.deferReply().queue();
+
             try {
                 CommandParserService.ParsedOption opt = parserService.parse(query);
-                event.reply("🔍 Fetching live data for **" + opt.ticker + "**...").setEphemeral(true).queue();
                 double currentPrice = marketService.getPrice(opt.ticker);
                 if (currentPrice == 0.0) {
-                    event.getChannel().sendMessage("❌ Could not fetch price for **" + opt.ticker + "**.").queue();
+                    event.getHook().sendMessage("❌ Could not fetch price for **" + opt.ticker + "**.").queue();
                     return;
                 }
                 double fairValue = bsService.blackScholes(currentPrice, opt.strike, opt.days / 365.0, volatility,
@@ -516,54 +506,44 @@ public class DiscordBotService extends ListenerAdapter {
                 eb.addField("Live Stock Price", "$" + currentPrice, true);
                 eb.addField("Fair Value", "$" + String.format("%.2f", fairValue), true);
                 eb.setFooter("Using volatility: " + (volatility * 100) + "%");
-                event.getChannel().sendMessageEmbeds(eb.build()).queue();
+                event.getHook().sendMessageEmbeds(eb.build()).queue();
             } catch (Exception e) {
-                event.reply("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").setEphemeral(true)
-                        .queue();
+                event.getHook().sendMessage("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").queue();
             }
         }
     }
 
     private void viewSlash(SlashCommandInteractionEvent event) {
         String username = event.getOption("username").getAsString();
-        List<Holding> holdings = holdingService.getHoldings(username);
-        EmbedBuilder eb = new EmbedBuilder();
-        eb.setTitle("💼 " + username + "'s Portfolio");
-        eb.setColor(Color.decode("#3498db")); // Blue
 
-        if (holdings.isEmpty()) {
-            eb.setDescription("No active positions.");
-        } else {
-            Map<String, List<Holding>> grouped = new HashMap<>();
+        event.deferReply().queue();
 
-            for (Holding h : holdings) {
-                String key = h.getTicker() + "-" + h.getStrikePrice() + "-" + h.getType();
-                if (!grouped.containsKey(key)) {
-                    grouped.put(key, new ArrayList<>());
+        try {
+            List<Strategy> strategies = strategyService.getOpenStrategies(username);
+            EmbedBuilder eb = new EmbedBuilder();
+            eb.setTitle("💼 " + username + "'s Portfolio");
+            eb.setColor(Color.decode("#3498db")); // Blue
+
+            if (strategies.isEmpty()) {
+                eb.setDescription("No active positions.");
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (Strategy s : strategies) {
+                    sb.append("**#" + s.getId() + " " + s.getTicker() + "** (" + s.getStrategy() + ")\n");
+                    for (Leg leg : s.getLegs()) {
+                        String legDir = leg.getQuantity() > 0 ? "📈" : "📉";
+                        sb.append(legDir + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
+                                " @ $" + leg.getEntryPrice() + "\n");
+                    }
+                    sb.append("\n");
                 }
-                grouped.get(key).add(h);
+                eb.setDescription(sb.toString());
             }
-            StringBuilder sb = new StringBuilder();
-            for (Map.Entry<String, List<Holding>> entry : grouped.entrySet()) {
-                List<Holding> contracts = entry.getValue();
-                Holding first = contracts.get(0);
-                // Calculate average price
-                double totalCost = 0;
-                for (Holding contract : contracts) {
-                    totalCost += contract.getBuyPrice();
-                }
-                double avgPrice = totalCost / contracts.size();
-                sb.append(String.format("**%s** $%s %s (%d contracts) @ avg $%.2f\n",
-                        first.getTicker(),
-                        first.getStrikePrice(),
-                        first.getType().toUpperCase(),
-                        contracts.size(),
-                        avgPrice));
-            }
-            eb.setDescription(sb.toString());
+            event.getHook().sendMessageEmbeds(eb.build()).queue();
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
         }
-        event.replyEmbeds(eb.build()).queue();
-
     }
 
 }
