@@ -11,6 +11,7 @@ public class Leg {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "strategy_id")
     private Strategy strategy;
@@ -25,7 +26,9 @@ public class Leg {
     public Leg() {
     }
 
-    public Leg(String optionType, Double strikePrice, LocalDate expiration, Double entryPrice, Integer quantity) {
+    public Leg(Strategy strategy, String optionType, Double strikePrice, LocalDate expiration, Double entryPrice,
+            Integer quantity) {
+        this.strategy = strategy;
         this.optionType = optionType;
         this.strikePrice = strikePrice;
         this.expiration = expiration;

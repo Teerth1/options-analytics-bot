@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.dealaggregator.dealapi.entity.Holding;
-import com.dealaggregator.dealapi.repository.DealRepository;
 
 import jakarta.annotation.PostConstruct;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -57,8 +56,6 @@ public class DiscordBotService extends ListenerAdapter {
     @Value("${discord.bot.guild}")
     private String guildId;
 
-    private final DealRepository dealRepo;
-
     private final BlackScholesService bsService;
     private final CommandParserService parserService;
     private final MarketDataService marketService;
@@ -68,13 +65,10 @@ public class DiscordBotService extends ListenerAdapter {
 
     /**
      * Constructor for DiscordBotService with dependency injection.
-     *
-     * @param dealRepo Repository for accessing deal data from the database
      */
-    public DiscordBotService(DealRepository dealRepo, BlackScholesService bsService, CommandParserService parserService,
+    public DiscordBotService(BlackScholesService bsService, CommandParserService parserService,
             MarketDataService marketDataService, HoldingService holdingService, MassiveDataService massiveService,
             StrategyService strategyService) {
-        this.dealRepo = dealRepo;
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
@@ -283,7 +277,7 @@ public class DiscordBotService extends ListenerAdapter {
                     userId,
                     "SINGLE",
                     opt.ticker,
-                    java.util.List.of(leg));
+                    List.of(leg));
 
             event.reply(
                     "✅ **Position Opened:** " + opt.ticker + " $" + opt.strike + " " + opt.type.toUpperCase() +
