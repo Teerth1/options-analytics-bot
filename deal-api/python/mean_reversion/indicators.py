@@ -67,29 +67,80 @@ class KalmanFilter:
         self.error_cov = (1 - kalman_gain) * predicted_error_cov
         return self.estimate
 
+
+
+def calculate_zscore(prices, lookback=50):
+    """
+    Calculate Z-Score - how many std devs from the mean.
+    
+    Z > +2: Overbought (sell signal for mean reversion)
+    Z < -2: Oversold (buy signal for mean reversion)
+    """
+    # Convert to pandas Series if needed
+    if not isinstance(prices, pd.Series):
+        prices = pd.Series(prices)
+    
+    # Calculate rolling mean and std
+    rolling_mean = prices.rolling(window=lookback).mean()
+    rolling_std = prices.rolling(window=lookback).std()
+    
+    #Z-Score formula
+    zscore = (prices - rolling_mean) / rolling_std
+    
+    # Get the latest value
+    current_z = zscore.iloc[-1]
+    
+    # Determine signal
+    if current_z > 2:
+        signal = "OVERBOUGHT"
+    elif current_z < -2:
+        signal = "OVERSOLD"
+    else:
+        signal = "NEUTRAL"
+    
+    return {
+        'zscore': current_z,
+        'signal': signal,
+        'mean': rolling_mean.iloc[-1],
+        'std': rolling_std.iloc[-1]
+    }
+
+
+
 if __name__ == "__main__":
     from data_fetcher import fetch_ohlcv
     
     df = fetch_ohlcv("SPY", "2y")
-    prices = df['Close']
+    if df.empty:
+        print("ERROR: No data fetched. Try again or check internet connection.")
+    else:
+        prices = df['Close']
     
-    # Test Half-Life
-    print("=== Half-Life Test ===")
-    result = calculate_half_life(prices)
-    print(f"Half-Life: {result['half_life']:.1f} bars")
-    print(f"Beta: {result['beta']:.4f}")
-    print(f"Mean Reverting: {result['is_mean_reverting']}")
     
-    # Test Kalman Filter
-    print("\n=== Kalman Filter Test ===")
-    kf = KalmanFilter(process_noise=0.01, measurement_noise=1.0)
-    
-    # Run Kalman on last 10 prices
-    print("Price → Kalman Estimate")
-    for price in prices[-10:]:
-        estimate = kf.update(price)
-        print(f"  {price:.2f} → {estimate:.2f}")
-    
-    # Show how much smoothing happened
-    print(f"\nLast price: {prices.iloc[-1]:.2f}")
-    print(f"Kalman estimate: {kf.estimate:.2f}")
+        # Test Half-Life
+        print("=== Half-Life Test ===")
+        result = calculate_half_life(prices)
+        print(f"Half-Life: {result['half_life']:.1f} bars")
+        print(f"Beta: {result['beta']:.4f}")
+        print(f"Mean Reverting: {result['is_mean_reverting']}")
+        
+        # Test Kalman Filter
+        print("\n=== Kalman Filter Test ===")
+        kf = KalmanFilter(process_noise=0.01, measurement_noise=1.0)
+        
+        # Run Kalman on last 10 prices
+        print("Price → Kalman Estimate")
+        for price in prices[-10:]:
+            estimate = kf.update(price)
+            print(f"  {price:.2f} → {estimate:.2f}")
+        
+        # Show how much smoothing happened
+        print(f"\nLast price: {prices.iloc[-1]:.2f}")
+        print(f"Kalman estimate: {kf.estimate:.2f}")
+        # Test Z-Score
+        print("\n=== Z-Score Test ===")
+        z_result = calculate_zscore(prices)
+        print(f"Z-Score: {z_result['zscore']:.2f}")
+        print(f"Signal: {z_result['signal']}")
+        print(f"Mean: {z_result['mean']:.2f}")
+        print(f"Std: {z_result['std']:.2f}")
