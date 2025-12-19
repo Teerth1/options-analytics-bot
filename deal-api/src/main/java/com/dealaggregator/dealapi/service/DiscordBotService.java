@@ -246,15 +246,32 @@ public class DiscordBotService extends ListenerAdapter {
         long id = event.getOption("id").getAsLong();
         String userId = event.getUser().getName();
 
-        Optional<Holding> holdingOpt = holdingService.getHoldingById(id);
+        event.deferReply().queue();
 
-        if (holdingOpt.isPresent() && holdingOpt.get().getDiscordUserId().equals(userId)) {
-            Holding h = holdingOpt.get();
-            holdingService.removeHolding(id);
-            event.reply("✅ Closed position #" + id + ": " + h.getTicker() + " $" + h.getStrikePrice() + " "
-                    + h.getType()).queue();
-        } else {
-            event.reply("❌ Invalid position ID").setEphemeral(true).queue();
+        try {
+            // Get the strategy to verify ownership and show details
+            List<Strategy> userStrategies = strategyService.getOpenStrategies(userId);
+            Strategy target = null;
+
+            for (Strategy s : userStrategies) {
+                if (s.getId() == id) {
+                    target = s;
+                    break;
+                }
+            }
+
+            if (target != null) {
+                strategyService.closeStrategy(id);
+                event.getHook().sendMessage(
+                        "✅ **Closed Strategy #" + id + ":** " + target.getTicker() +
+                                " (" + target.getStrategy() + ") - " + target.getLegs().size() + " leg(s)")
+                        .queue();
+            } else {
+                event.getHook().sendMessage("❌ Strategy #" + id + " not found or doesn't belong to you.").queue();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error closing strategy: " + e.getMessage()).queue();
         }
     }
 
