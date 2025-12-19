@@ -312,44 +312,39 @@ public class DiscordBotService extends ListenerAdapter {
 
     private void portfolioSlash(SlashCommandInteractionEvent event) {
         String userId = event.getUser().getName();
-        List<Holding> holdings = holdingService.getHoldings(userId);
+
+        // Defer in case database is slow
+        event.deferReply().queue();
+
+        List<Strategy> strategies = strategyService.getOpenStrategies(userId);
         EmbedBuilder eb = new EmbedBuilder();
         eb.setTitle("💼 " + userId + "'s Portfolio");
         eb.setColor(Color.decode("#2ecc71")); // Green
 
-        if (holdings.isEmpty()) {
+        if (strategies.isEmpty()) {
             eb.setDescription("No active positions. Use `/buy` to add one.");
         } else {
-            Map<String, List<Holding>> grouped = new HashMap<>();
-
-            for (Holding h : holdings) {
-                String key = h.getTicker() + "-" + h.getStrikePrice() + "-" + h.getType();
-                if (!grouped.containsKey(key)) {
-                    grouped.put(key, new ArrayList<>());
-                }
-                grouped.get(key).add(h);
-            }
             StringBuilder sb = new StringBuilder();
-            for (Map.Entry<String, List<Holding>> entry : grouped.entrySet()) {
-                List<Holding> contracts = entry.getValue();
-                Holding first = contracts.get(0);
-                // Calculate average price
-                double totalCost = 0;
-                for (Holding contract : contracts) {
-                    totalCost += contract.getBuyPrice();
+            double totalValue = 0;
+
+            for (Strategy s : strategies) {
+                // Strategy header
+                sb.append("**#" + s.getId() + " " + s.getTicker() + "** (" + s.getStrategy() + ")\n");
+
+                // List each leg
+                for (Leg leg : s.getLegs()) {
+                    String legDir = leg.getQuantity() > 0 ? "📈" : "📉"; // Long or Short
+                    sb.append(legDir + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
+                            " @ $" + leg.getEntryPrice() + " (Exp: " + leg.getExpiration() + ")\n");
+                    totalValue += leg.getEntryPrice() * leg.getQuantity();
                 }
-                double avgPrice = totalCost / contracts.size();
-                sb.append(String.format("**%s** $%s %s (%d contracts) @ avg $%.2f\n",
-                        first.getTicker(),
-                        first.getStrikePrice(),
-                        first.getType().toUpperCase(),
-                        contracts.size(),
-                        avgPrice));
+                sb.append("\n");
             }
+
             eb.setDescription(sb.toString());
-            eb.setFooter("Use /sell <id> to close | /sellall <ticker> to close all");
+            eb.setFooter("Total positions: " + strategies.size() + " | Use /sell <id> to close");
         }
-        event.replyEmbeds(eb.build()).queue();
+        event.getHook().sendMessageEmbeds(eb.build()).queue();
     }
 
     private void optionPriceSlash(SlashCommandInteractionEvent event) {
