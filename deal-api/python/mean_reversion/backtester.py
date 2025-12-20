@@ -341,15 +341,17 @@ if __name__ == "__main__":
     
     backtester = MeanReversionBacktester(
         ticker="SPY",
-        period="2y",
-        interval="1d",
-        zscore_threshold=2.0,
+        period="1mo",
+        interval="15m",
+        zscore_threshold=1.5,  # Lower threshold for more trades
         stop_loss_pct=0.03,
-        take_profit_pct=0.05
+        take_profit_pct=0.05,
+        use_half_life_filter=False  # Disable for testing
     )
     
     try:
         result = backtester.run()
         backtester.print_summary(result)
     except Exception as e:
+
         print(f"Error: {e}")

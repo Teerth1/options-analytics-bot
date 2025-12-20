@@ -139,7 +139,19 @@ public class DiscordBotService extends ListenerAdapter {
 
                 // 10. Liquidity Check
                 Commands.slash("liquidity", "Check liquidity for a specific contract")
-                        .addOption(OptionType.STRING, "contract", "Contract (e.g. NVDA 150c 30d)", true))
+                        .addOption(OptionType.STRING, "contract", "Contract (e.g. NVDA 150c 30d)", true),
+
+                // 11. Multi-Leg Spread Command
+                Commands.slash("spread", "Open a multi-leg strategy (vertical, iron condor, etc.)")
+                        .addOption(OptionType.STRING, "type", "Strategy type (VERTICAL, IRON_CONDOR, STRADDLE, CUSTOM)",
+                                true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying symbol (e.g. NVDA)", true)
+                        .addOption(OptionType.STRING, "leg1",
+                                "Leg 1: strike+type days price [short] (e.g. 150c 30d 2.50)", true)
+                        .addOption(OptionType.STRING, "leg2",
+                                "Leg 2: strike+type days price [short] (e.g. 155c 30d 1.20 short)", true)
+                        .addOption(OptionType.STRING, "leg3", "Leg 3 (optional)", false)
+                        .addOption(OptionType.STRING, "leg4", "Leg 4 (optional)", false))
                 .queue();
 
     }
@@ -167,6 +179,8 @@ public class DiscordBotService extends ListenerAdapter {
             viewSlash(event);
         } else if (event.getName().equals("liquidity")) {
             liquiditySlash(event);
+        } else if (event.getName().equals("spread")) {
+            spreadSlash(event);
         }
     }
 
@@ -301,6 +315,104 @@ public class DiscordBotService extends ListenerAdapter {
             e.printStackTrace(); // Log for debugging
             event.getHook().sendMessage("❌ Error: " + e.getMessage() + "\nTry format: `NVDA 150c 30d`").queue();
         }
+    }
+
+    /**
+     * Handle /spread command for multi-leg strategies.
+     * Format: /spread TYPE TICKER "150c 30d 2.50" "155c 30d 1.20 short"
+     */
+    private void spreadSlash(SlashCommandInteractionEvent event) {
+        String strategyType = event.getOption("type").getAsString().toUpperCase();
+        String ticker = event.getOption("ticker").getAsString().toUpperCase();
+        String userId = event.getUser().getName();
+
+        event.deferReply().queue();
+
+        try {
+            java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+
+            // Parse required legs (leg1 and leg2)
+            String leg1Str = event.getOption("leg1").getAsString();
+            String leg2Str = event.getOption("leg2").getAsString();
+            legs.add(parseLeg(leg1Str));
+            legs.add(parseLeg(leg2Str));
+
+            // Parse optional legs (leg3 and leg4)
+            if (event.getOption("leg3") != null) {
+                legs.add(parseLeg(event.getOption("leg3").getAsString()));
+            }
+            if (event.getOption("leg4") != null) {
+                legs.add(parseLeg(event.getOption("leg4").getAsString()));
+            }
+
+            // Create strategy with all legs
+            Strategy strategy = strategyService.openStrategy(userId, strategyType, ticker, legs);
+
+            // Build response message
+            StringBuilder sb = new StringBuilder();
+            sb.append("✅ **" + strategyType + " Opened:** " + ticker + "\n");
+            for (int i = 0; i < legs.size(); i++) {
+                Leg leg = legs.get(i);
+                String direction = leg.getQuantity() > 0 ? "📈 LONG" : "📉 SHORT";
+                sb.append(direction + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
+                        " @ $" + Math.abs(leg.getEntryPrice()) + " (Exp: " + leg.getExpiration() + ")\n");
+            }
+            sb.append("\n📋 Strategy ID: " + strategy.getId());
+
+            event.getHook().sendMessage(sb.toString()).queue();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error: " + e.getMessage() +
+                    "\nFormat: `150c 30d 2.50` or `155c 30d 1.20 short`").queue();
+        }
+    }
+
+    /**
+     * Parse a leg string into a Leg object.
+     * Format: "150c 30d 2.50" or "155c 30d 1.20 short"
+     * 
+     * @param legStr The leg string to parse
+     * @return Leg object with parsed values
+     */
+    private Leg parseLeg(String legStr) {
+        String[] parts = legStr.trim().split("\\s+");
+
+        if (parts.length < 3) {
+            throw new IllegalArgumentException("Invalid leg format: " + legStr +
+                    ". Expected: strike+type days price [short]");
+        }
+
+        // Parse strike and type (e.g., "150c" or "155p")
+        String strikeType = parts[0].toLowerCase();
+        String type;
+        double strike;
+
+        if (strikeType.endsWith("c")) {
+            type = "call";
+            strike = Double.parseDouble(strikeType.substring(0, strikeType.length() - 1));
+        } else if (strikeType.endsWith("p")) {
+            type = "put";
+            strike = Double.parseDouble(strikeType.substring(0, strikeType.length() - 1));
+        } else {
+            throw new IllegalArgumentException("Invalid option type. Use 'c' for call or 'p' for put.");
+        }
+
+        // Parse days (e.g., "30d")
+        String daysStr = parts[1].toLowerCase().replace("d", "");
+        int days = Integer.parseInt(daysStr);
+        java.time.LocalDate expiration = java.time.LocalDate.now().plusDays(days);
+
+        // Parse price
+        double price = Double.parseDouble(parts[2]);
+
+        // Check for "short" keyword
+        int quantity = 1; // Default: long
+        if (parts.length >= 4 && parts[3].equalsIgnoreCase("short")) {
+            quantity = -1; // Short position
+        }
+
+        return new Leg(type, strike, expiration, price, quantity);
     }
 
     private void sellAllSlash(SlashCommandInteractionEvent event) {
