@@ -105,9 +105,46 @@ def calculate_zscore(prices, lookback=50):
         'std': rolling_std.iloc[-1]
     }
 
+def calculate_acf(prices, max_lag=10):
+    """
+    Calculate Autocorrelation Function.
+    
+    Negative ACF at lag 1 = Mean reverting
+    Positive ACF at lag 1 = Trending
+    """
 
+    # Convert to numpy array of returns
+    if isinstance(prices, pd.Series):
+        prices = prices.values
+    
+    # Calculate returns (price changes)
+    returns = np.diff(np.log(prices))  # Log returns
+    # Calculate ACF for each lag
+    n = len(returns)
+    mean = np.mean(returns)
+    var = np.var(returns)
+
+    acf_values = []
+    for lag in range(1, max_lag + 1):
+        if lag >= n:
+            acf_values.append(0)
+            continue
+        # Correlation between returns and lagged returns
+        cov = np.mean((returns[lag:] - mean) * (returns[:-lag] - mean))
+        acf = cov / var if var != 0 else 0
+        acf_values.append(acf)
+    
+    lag1_acf = acf_values[0] if acf_values else 0
+    
+    return {
+        'acf_lag1': lag1_acf,
+        'acf_values': acf_values,
+        'is_mean_reverting': lag1_acf < -0.05,
+        'is_trending': lag1_acf > 0.05
+    }
 
 if __name__ == "__main__":
+    import numpy as np
     from data_fetcher import fetch_ohlcv
     
     df = fetch_ohlcv("SPY", "2y")
@@ -144,3 +181,11 @@ if __name__ == "__main__":
         print(f"Signal: {z_result['signal']}")
         print(f"Mean: {z_result['mean']:.2f}")
         print(f"Std: {z_result['std']:.2f}")
+        
+        # Test ACF
+        print("\n=== ACF Test ===")
+        acf_result = calculate_acf(prices)
+        print(f"ACF Lag-1: {acf_result['acf_lag1']:.4f}")
+        print(f"Mean Reverting: {acf_result['is_mean_reverting']}")
+        print(f"Trending: {acf_result['is_trending']}")
+        
