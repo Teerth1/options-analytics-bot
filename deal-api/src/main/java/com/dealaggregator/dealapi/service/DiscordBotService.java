@@ -1,6 +1,8 @@
 package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
+import LocalDate;
+import ArrayList;
 import java.util.List;
 import java.util.Optional;
 import com.dealaggregator.dealapi.entity.Strategy;
@@ -289,7 +291,7 @@ public class DiscordBotService extends ListenerAdapter {
             CommandParserService.ParsedOption opt = parserService.parse(query);
 
             // Calculate expiration date from days
-            java.time.LocalDate expiration = java.time.LocalDate.now().plusDays(opt.days);
+            LocalDate expiration = LocalDate.now().plusDays(opt.days);
 
             // Create a single leg
             Leg leg = new Leg(opt.type, opt.strike, expiration, price, 1); // quantity = 1 (long)
@@ -335,13 +337,13 @@ public class DiscordBotService extends ListenerAdapter {
             // Parse expiration
             String daysStr = expiryInput.toLowerCase().replace("d", "");
             int days = Integer.parseInt(daysStr);
-            java.time.LocalDate expiration = java.time.LocalDate.now().plusDays(days);
+            LocalDate expiration = LocalDate.now().plusDays(days);
 
             // Parse strikes (e.g., "6820c 6860c" or "150p 160p")
             String[] strikeParts = strikesInput.trim().split("\\s+");
 
             // Generate legs based on strategy type
-            java.util.ArrayList<Leg> legs = generateLegs(strategyType, strikeParts, expiration, netCost);
+            ArrayList<Leg> legs = generateLegs(strategyType, strikeParts, expiration, netCost);
 
             // Create strategy with all legs
             Strategy strategy = strategyService.openStrategy(userId, strategyType, ticker, legs);
@@ -377,10 +379,10 @@ public class DiscordBotService extends ListenerAdapter {
      * STRADDLE: Buy call + Buy put at same strike
      * IRON_CONDOR: 4 legs (requires 4 strikes)
      */
-    private java.util.ArrayList<Leg> generateLegs(String strategyType, String[] strikes,
-            java.time.LocalDate expiration, double netCost) {
+    private ArrayList<Leg> generateLegs(String strategyType, String[] strikes,
+            LocalDate expiration, double netCost) {
 
-        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+        ArrayList<Leg> legs = new ArrayList<>();
 
         switch (strategyType) {
             case "FLY":
@@ -425,10 +427,10 @@ public class DiscordBotService extends ListenerAdapter {
     /**
      * Generate butterfly legs: Buy low, Sell 2x middle, Buy high
      */
-    private java.util.ArrayList<Leg> generateButterfly(String lowStrike, String highStrike,
-            java.time.LocalDate expiration) {
+    private ArrayList<Leg> generateButterfly(String lowStrike, String highStrike,
+            LocalDate expiration) {
 
-        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+        ArrayList<Leg> legs = new ArrayList<>();
 
         // Parse low and high strikes
         double low = parseStrikeValue(lowStrike);
@@ -451,10 +453,10 @@ public class DiscordBotService extends ListenerAdapter {
     /**
      * Generate vertical spread: Buy low, Sell high
      */
-    private java.util.ArrayList<Leg> generateVertical(String lowStrike, String highStrike,
-            java.time.LocalDate expiration) {
+    private ArrayList<Leg> generateVertical(String lowStrike, String highStrike,
+            LocalDate expiration) {
 
-        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+        ArrayList<Leg> legs = new ArrayList<>();
 
         double low = parseStrikeValue(lowStrike);
         double high = parseStrikeValue(highStrike);
@@ -472,8 +474,8 @@ public class DiscordBotService extends ListenerAdapter {
     /**
      * Generate straddle: Buy call + Buy put at same strike
      */
-    private java.util.ArrayList<Leg> generateStraddle(String strike, java.time.LocalDate expiration) {
-        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+    private ArrayList<Leg> generateStraddle(String strike, LocalDate expiration) {
+        ArrayList<Leg> legs = new ArrayList<>();
 
         double strikePrice = parseStrikeValue(strike);
 
@@ -490,8 +492,8 @@ public class DiscordBotService extends ListenerAdapter {
      * Generate iron condor: 4 legs
      * Strikes order: put_buy, put_sell, call_sell, call_buy
      */
-    private java.util.ArrayList<Leg> generateIronCondor(String[] strikes, java.time.LocalDate expiration) {
-        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+    private ArrayList<Leg> generateIronCondor(String[] strikes, LocalDate expiration) {
+        ArrayList<Leg> legs = new ArrayList<>();
 
         double s1 = parseStrikeValue(strikes[0]); // Buy put (lowest)
         double s2 = parseStrikeValue(strikes[1]); // Sell put
@@ -660,7 +662,7 @@ public class DiscordBotService extends ListenerAdapter {
                             double currentPrice = marketService.getPrice(s.getTicker());
                             if (currentPrice > 0) {
                                 long daysToExp = java.time.temporal.ChronoUnit.DAYS.between(
-                                        java.time.LocalDate.now(),
+                                        LocalDate.now(),
                                         leg.getExpiration());
 
                                 double fairValue = bsService.blackScholes(
