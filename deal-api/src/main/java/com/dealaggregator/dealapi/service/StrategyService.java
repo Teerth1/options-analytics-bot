@@ -6,12 +6,29 @@ import com.dealaggregator.dealapi.entity.Strategy;
 import com.dealaggregator.dealapi.entity.Leg;
 import com.dealaggregator.dealapi.repository.StrategyRepository;
 
+/**
+ * Service layer for managing options trading strategies.
+ * 
+ * Handles the business logic for:
+ * - Opening new strategies (single-leg or multi-leg spreads)
+ * - Retrieving user portfolios
+ * - Closing/selling strategies
+ * 
+ * A Strategy can contain multiple Legs (e.g., vertical spread has 2 legs,
+ * iron condor has 4 legs). Each Leg represents one options contract.
+ * 
+ * @see Strategy
+ * @see Leg
+ */
 @Service
 public class StrategyService {
 
     private final StrategyRepository strategyRepo;
 
-    // Constructor injection
+    /**
+     * Constructor with dependency injection.
+     * Spring automatically injects the StrategyRepository.
+     */
     public StrategyService(StrategyRepository strategyRepo) {
         this.strategyRepo = strategyRepo;
     }

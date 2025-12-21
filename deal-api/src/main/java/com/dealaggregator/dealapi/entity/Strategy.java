@@ -6,6 +6,17 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Represents an options trading strategy.
+ * 
+ * A Strategy is the parent container for one or more Legs (options contracts).
+ * Examples:
+ * - SINGLE: One leg (e.g., buying a call)
+ * - VERTICAL: Two legs (e.g., bull call spread)
+ * - IRON_CONDOR: Four legs
+ * 
+ * Each user can have multiple open strategies, tracked by userId.
+ */
 @Entity
 @Data
 @Table(name = "strategies")
@@ -14,15 +25,26 @@ public class Strategy {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Discord username of the strategy owner */
     private String userId;
+
+    /** Strategy type: SINGLE, VERTICAL, IRON_CONDOR, STRADDLE, CUSTOM */
     private String strategy;
+
+    /** Underlying stock ticker (e.g., NVDA, TSLA) */
     private String ticker;
 
+    /** Timestamp when the strategy was opened */
     private LocalDateTime openedAt = LocalDateTime.now();
 
-    private String status = "OPEN"; // "OPEN" or "CLOSED"
+    /** Current status: "OPEN" or "CLOSED" */
+    private String status = "OPEN";
 
-    // This creates the 1-to-many relationship with Leg
+    /**
+     * List of option legs in this strategy.
+     * Uses cascade to automatically save/delete legs with the strategy.
+     * Eager fetch ensures legs are loaded with the strategy.
+     */
     @OneToMany(mappedBy = "strategy", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<Leg> legs = new ArrayList<>();
 

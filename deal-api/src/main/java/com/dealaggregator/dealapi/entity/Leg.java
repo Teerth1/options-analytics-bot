@@ -4,6 +4,18 @@ import java.time.LocalDate;
 import jakarta.persistence.*;
 import lombok.Data;
 
+/**
+ * Represents a single options contract leg within a Strategy.
+ * 
+ * Each Leg stores the details of one options position:
+ * - Option type (call/put)
+ * - Strike price
+ * - Expiration date
+ * - Entry price paid/received
+ * - Quantity (positive = long, negative = short)
+ * 
+ * Multiple Legs combine to form multi-leg strategies like spreads.
+ */
 @Entity
 @Data
 @Table(name = "legs")
@@ -12,15 +24,24 @@ public class Leg {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Parent strategy this leg belongs to */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "strategy_id")
     private Strategy strategy;
 
+    /** Option type: "call" or "put" */
     private String optionType;
+
+    /** Strike price of the option */
     private Double strikePrice;
+
+    /** Expiration date of the option */
     private LocalDate expiration;
+
+    /** Price paid (long) or received (short) per contract */
     private Double entryPrice;
 
+    /** Quantity: positive = long position, negative = short position */
     private Integer quantity;
 
     public Leg() {
