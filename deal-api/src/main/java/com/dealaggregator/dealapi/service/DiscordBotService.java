@@ -141,17 +141,13 @@ public class DiscordBotService extends ListenerAdapter {
                 Commands.slash("liquidity", "Check liquidity for a specific contract")
                         .addOption(OptionType.STRING, "contract", "Contract (e.g. NVDA 150c 30d)", true),
 
-                // 11. Multi-Leg Spread Command
-                Commands.slash("spread", "Open a multi-leg strategy (vertical, iron condor, etc.)")
-                        .addOption(OptionType.STRING, "type", "Strategy type (VERTICAL, IRON_CONDOR, STRADDLE, CUSTOM)",
-                                true)
-                        .addOption(OptionType.STRING, "ticker", "Underlying symbol (e.g. NVDA)", true)
-                        .addOption(OptionType.STRING, "leg1",
-                                "Leg 1: strike+type days price [short] (e.g. 150c 30d 2.50)", true)
-                        .addOption(OptionType.STRING, "leg2",
-                                "Leg 2: strike+type days price [short] (e.g. 155c 30d 1.20 short)", true)
-                        .addOption(OptionType.STRING, "leg3", "Leg 3 (optional)", false)
-                        .addOption(OptionType.STRING, "leg4", "Leg 4 (optional)", false))
+                // 11. Smart Spread Command - Auto-generates legs based on strategy type
+                Commands.slash("spread", "Open a spread with auto-generated legs")
+                        .addOption(OptionType.STRING, "type", "FLY, VERTICAL, STRADDLE, IRON_CONDOR", true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying symbol (e.g. SPX, NVDA)", true)
+                        .addOption(OptionType.STRING, "strikes", "Strikes with c/p: '6820c 6860c' or '150p 160p'", true)
+                        .addOption(OptionType.STRING, "expiry", "Days to expiration (e.g. 30d)", true)
+                        .addOption(OptionType.NUMBER, "cost", "Net debit/credit for the spread", true))
                 .queue();
 
     }
@@ -318,32 +314,34 @@ public class DiscordBotService extends ListenerAdapter {
     }
 
     /**
-     * Handle /spread command for multi-leg strategies.
-     * Format: /spread TYPE TICKER "150c 30d 2.50" "155c 30d 1.20 short"
+     * Handle /spread command with smart templates.
+     * Auto-generates legs based on strategy type.
+     * 
+     * Examples:
+     * /spread fly SPX "6820c 6860c" 30d 2.50
+     * /spread vertical NVDA "150c 155c" 14d 1.50
      */
     private void spreadSlash(SlashCommandInteractionEvent event) {
         String strategyType = event.getOption("type").getAsString().toUpperCase();
         String ticker = event.getOption("ticker").getAsString().toUpperCase();
+        String strikesInput = event.getOption("strikes").getAsString();
+        String expiryInput = event.getOption("expiry").getAsString();
+        double netCost = event.getOption("cost").getAsDouble();
         String userId = event.getUser().getName();
 
         event.deferReply().queue();
 
         try {
-            java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+            // Parse expiration
+            String daysStr = expiryInput.toLowerCase().replace("d", "");
+            int days = Integer.parseInt(daysStr);
+            java.time.LocalDate expiration = java.time.LocalDate.now().plusDays(days);
 
-            // Parse required legs (leg1 and leg2)
-            String leg1Str = event.getOption("leg1").getAsString();
-            String leg2Str = event.getOption("leg2").getAsString();
-            legs.add(parseLeg(leg1Str));
-            legs.add(parseLeg(leg2Str));
+            // Parse strikes (e.g., "6820c 6860c" or "150p 160p")
+            String[] strikeParts = strikesInput.trim().split("\\s+");
 
-            // Parse optional legs (leg3 and leg4)
-            if (event.getOption("leg3") != null) {
-                legs.add(parseLeg(event.getOption("leg3").getAsString()));
-            }
-            if (event.getOption("leg4") != null) {
-                legs.add(parseLeg(event.getOption("leg4").getAsString()));
-            }
+            // Generate legs based on strategy type
+            java.util.ArrayList<Leg> legs = generateLegs(strategyType, strikeParts, expiration, netCost);
 
             // Create strategy with all legs
             Strategy strategy = strategyService.openStrategy(userId, strategyType, ticker, legs);
@@ -351,68 +349,181 @@ public class DiscordBotService extends ListenerAdapter {
             // Build response message
             StringBuilder sb = new StringBuilder();
             sb.append("✅ **" + strategyType + " Opened:** " + ticker + "\n");
-            for (int i = 0; i < legs.size(); i++) {
-                Leg leg = legs.get(i);
+            for (Leg leg : legs) {
                 String direction = leg.getQuantity() > 0 ? "📈 LONG" : "📉 SHORT";
-                sb.append(direction + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
-                        " @ $" + Math.abs(leg.getEntryPrice()) + " (Exp: " + leg.getExpiration() + ")\n");
+                int qty = Math.abs(leg.getQuantity());
+                String qtyStr = qty > 1 ? " x" + qty : "";
+                sb.append(direction + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
+                        leg.getOptionType().toUpperCase() + "\n");
             }
-            sb.append("\n📋 Strategy ID: " + strategy.getId());
+            sb.append("💰 Net Cost: $" + String.format("%.2f", netCost) + "\n");
+            sb.append("📅 Expires: " + expiration + "\n");
+            sb.append("📋 Strategy ID: " + strategy.getId());
 
             event.getHook().sendMessage(sb.toString()).queue();
 
         } catch (Exception e) {
             e.printStackTrace();
             event.getHook().sendMessage("❌ Error: " + e.getMessage() +
-                    "\nFormat: `150c 30d 2.50` or `155c 30d 1.20 short`").queue();
+                    "\nFormat: `/spread fly SPX 6820c 6860c 30d 2.50`").queue();
         }
     }
 
     /**
-     * Parse a leg string into a Leg object.
-     * Format: "150c 30d 2.50" or "155c 30d 1.20 short"
+     * Generate legs based on strategy type.
      * 
-     * @param legStr The leg string to parse
-     * @return Leg object with parsed values
+     * FLY (Butterfly): Buy low, Sell 2x middle, Buy high
+     * VERTICAL: Buy low, Sell high
+     * STRADDLE: Buy call + Buy put at same strike
+     * IRON_CONDOR: 4 legs (requires 4 strikes)
      */
-    private Leg parseLeg(String legStr) {
-        String[] parts = legStr.trim().split("\\s+");
+    private java.util.ArrayList<Leg> generateLegs(String strategyType, String[] strikes,
+            java.time.LocalDate expiration, double netCost) {
 
-        if (parts.length < 3) {
-            throw new IllegalArgumentException("Invalid leg format: " + legStr +
-                    ". Expected: strike+type days price [short]");
+        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+
+        switch (strategyType) {
+            case "FLY":
+            case "BUTTERFLY":
+                if (strikes.length < 2) {
+                    throw new IllegalArgumentException("Butterfly needs 2 strikes (low and high)");
+                }
+                legs.addAll(generateButterfly(strikes[0], strikes[1], expiration));
+                break;
+
+            case "VERTICAL":
+            case "SPREAD":
+                if (strikes.length < 2) {
+                    throw new IllegalArgumentException("Vertical spread needs 2 strikes");
+                }
+                legs.addAll(generateVertical(strikes[0], strikes[1], expiration));
+                break;
+
+            case "STRADDLE":
+                if (strikes.length < 1) {
+                    throw new IllegalArgumentException("Straddle needs 1 strike");
+                }
+                legs.addAll(generateStraddle(strikes[0], expiration));
+                break;
+
+            case "IRON_CONDOR":
+            case "IC":
+                if (strikes.length < 4) {
+                    throw new IllegalArgumentException("Iron Condor needs 4 strikes");
+                }
+                legs.addAll(generateIronCondor(strikes, expiration));
+                break;
+
+            default:
+                throw new IllegalArgumentException("Unknown strategy type: " + strategyType +
+                        ". Use FLY, VERTICAL, STRADDLE, or IRON_CONDOR");
         }
 
-        // Parse strike and type (e.g., "150c" or "155p")
-        String strikeType = parts[0].toLowerCase();
-        String type;
-        double strike;
+        return legs;
+    }
 
-        if (strikeType.endsWith("c")) {
-            type = "call";
-            strike = Double.parseDouble(strikeType.substring(0, strikeType.length() - 1));
-        } else if (strikeType.endsWith("p")) {
-            type = "put";
-            strike = Double.parseDouble(strikeType.substring(0, strikeType.length() - 1));
-        } else {
-            throw new IllegalArgumentException("Invalid option type. Use 'c' for call or 'p' for put.");
+    /**
+     * Generate butterfly legs: Buy low, Sell 2x middle, Buy high
+     */
+    private java.util.ArrayList<Leg> generateButterfly(String lowStrike, String highStrike,
+            java.time.LocalDate expiration) {
+
+        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+
+        // Parse low and high strikes
+        double low = parseStrikeValue(lowStrike);
+        double high = parseStrikeValue(highStrike);
+        double middle = (low + high) / 2; // Auto-calculate middle
+        String optionType = parseOptionType(lowStrike);
+
+        // Buy low strike (long)
+        legs.add(new Leg(optionType, low, expiration, 0.0, 1));
+
+        // Sell 2x middle strike (short)
+        legs.add(new Leg(optionType, middle, expiration, 0.0, -2));
+
+        // Buy high strike (long)
+        legs.add(new Leg(optionType, high, expiration, 0.0, 1));
+
+        return legs;
+    }
+
+    /**
+     * Generate vertical spread: Buy low, Sell high
+     */
+    private java.util.ArrayList<Leg> generateVertical(String lowStrike, String highStrike,
+            java.time.LocalDate expiration) {
+
+        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+
+        double low = parseStrikeValue(lowStrike);
+        double high = parseStrikeValue(highStrike);
+        String optionType = parseOptionType(lowStrike);
+
+        // Buy low strike (long)
+        legs.add(new Leg(optionType, low, expiration, 0.0, 1));
+
+        // Sell high strike (short)
+        legs.add(new Leg(optionType, high, expiration, 0.0, -1));
+
+        return legs;
+    }
+
+    /**
+     * Generate straddle: Buy call + Buy put at same strike
+     */
+    private java.util.ArrayList<Leg> generateStraddle(String strike, java.time.LocalDate expiration) {
+        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+
+        double strikePrice = parseStrikeValue(strike);
+
+        // Buy call
+        legs.add(new Leg("call", strikePrice, expiration, 0.0, 1));
+
+        // Buy put
+        legs.add(new Leg("put", strikePrice, expiration, 0.0, 1));
+
+        return legs;
+    }
+
+    /**
+     * Generate iron condor: 4 legs
+     * Strikes order: put_buy, put_sell, call_sell, call_buy
+     */
+    private java.util.ArrayList<Leg> generateIronCondor(String[] strikes, java.time.LocalDate expiration) {
+        java.util.ArrayList<Leg> legs = new java.util.ArrayList<>();
+
+        double s1 = parseStrikeValue(strikes[0]); // Buy put (lowest)
+        double s2 = parseStrikeValue(strikes[1]); // Sell put
+        double s3 = parseStrikeValue(strikes[2]); // Sell call
+        double s4 = parseStrikeValue(strikes[3]); // Buy call (highest)
+
+        legs.add(new Leg("put", s1, expiration, 0.0, 1)); // Buy put
+        legs.add(new Leg("put", s2, expiration, 0.0, -1)); // Sell put
+        legs.add(new Leg("call", s3, expiration, 0.0, -1)); // Sell call
+        legs.add(new Leg("call", s4, expiration, 0.0, 1)); // Buy call
+
+        return legs;
+    }
+
+    /**
+     * Parse strike value from string like "6820c" or "150p"
+     */
+    private double parseStrikeValue(String strikeStr) {
+        String cleaned = strikeStr.toLowerCase().replaceAll("[cp]", "");
+        return Double.parseDouble(cleaned);
+    }
+
+    /**
+     * Parse option type from string like "6820c" or "150p"
+     */
+    private String parseOptionType(String strikeStr) {
+        if (strikeStr.toLowerCase().endsWith("c")) {
+            return "call";
+        } else if (strikeStr.toLowerCase().endsWith("p")) {
+            return "put";
         }
-
-        // Parse days (e.g., "30d")
-        String daysStr = parts[1].toLowerCase().replace("d", "");
-        int days = Integer.parseInt(daysStr);
-        java.time.LocalDate expiration = java.time.LocalDate.now().plusDays(days);
-
-        // Parse price
-        double price = Double.parseDouble(parts[2]);
-
-        // Check for "short" keyword
-        int quantity = 1; // Default: long
-        if (parts.length >= 4 && parts[3].equalsIgnoreCase("short")) {
-            quantity = -1; // Short position
-        }
-
-        return new Leg(type, strike, expiration, price, quantity);
+        throw new IllegalArgumentException("Strike must end with 'c' or 'p': " + strikeStr);
     }
 
     private void sellAllSlash(SlashCommandInteractionEvent event) {
