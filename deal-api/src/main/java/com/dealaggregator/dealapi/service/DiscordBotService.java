@@ -422,7 +422,7 @@ public class DiscordBotService extends ListenerAdapter {
 
             // Generate legs and create strategy
             ArrayList<Leg> legs = generateLegs(strategyType, strikes, expiration);
-            Strategy strategy = strategyService.openStrategy(userId, strategyType.name(), ticker, legs);
+            Strategy strategy = strategyService.openStrategy(userId, strategyType.name(), ticker, legs, netCost);
 
             // Build and send response
             String response = buildSpreadResponse(strategyType, ticker, legs, netCost, expiration, strategy.getId());
@@ -665,13 +665,30 @@ public class DiscordBotService extends ListenerAdapter {
                 // Strategy header
                 sb.append("**#" + s.getId() + " " + s.getTicker() + "** (" + s.getStrategy() + ")\n");
 
+                boolean isMultiLeg = s.getLegs().size() > 1;
+
                 // List each leg
                 for (Leg leg : s.getLegs()) {
-                    String legDir = leg.getQuantity() > 0 ? "📈" : "📉"; // Long or Short
-                    sb.append(legDir + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
-                            " @ $" + leg.getEntryPrice() + " (Exp: " + leg.getExpiration() + ")\n");
-                    totalValue += leg.getEntryPrice() * leg.getQuantity();
+                    String legDir = leg.getQuantity() > 0 ? "📈" : "📉";
+                    int qty = Math.abs(leg.getQuantity());
+                    String qtyStr = qty > 1 ? " x" + qty : "";
+
+                    if (isMultiLeg) {
+                        // For spreads: don't show per-leg price (it's 0)
+                        sb.append(legDir + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
+                                leg.getOptionType().toUpperCase() + " (Exp: " + leg.getExpiration() + ")\n");
+                    } else {
+                        // For single legs: show the price
+                        sb.append(legDir + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
+                                " @ $" + leg.getEntryPrice() + " (Exp: " + leg.getExpiration() + ")\n");
+                    }
                 }
+
+                // Show net cost for multi-leg strategies
+                if (isMultiLeg && s.getNetCost() != null) {
+                    sb.append("💰 Net Debit: $" + String.format("%.2f", s.getNetCost()) + "\n");
+                }
+
                 sb.append("\n");
             }
 
