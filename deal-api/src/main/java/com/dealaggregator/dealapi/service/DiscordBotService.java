@@ -149,13 +149,17 @@ public class DiscordBotService extends ListenerAdapter {
                 Commands.slash("liquidity", "Check liquidity for a specific contract")
                         .addOption(OptionType.STRING, "contract", "Contract (e.g. NVDA 150c 30d)", true),
 
-                // 11. Smart Spread Command - Auto-generates legs based on strategy type
-                Commands.slash("spread", "Open a spread with auto-generated legs")
-                        .addOption(OptionType.STRING, "type", "FLY, VERTICAL, STRADDLE, IRON_CONDOR", true)
-                        .addOption(OptionType.STRING, "ticker", "Underlying symbol (e.g. SPX, NVDA)", true)
-                        .addOption(OptionType.STRING, "strikes", "Strikes with c/p: '6820c 6860c' or '150p 160p'", true)
-                        .addOption(OptionType.STRING, "expiry", "Days to expiration (e.g. 30d)", true)
-                        .addOption(OptionType.NUMBER, "cost", "Net debit/credit for the spread", true),
+                // 11. Smart Spread Command - simplified format
+                // Example: /spread fly open SPX 6800 6850 c 0 5.80
+                Commands.slash("spread", "Open/close a spread (fly, vertical, straddle)")
+                        .addOption(OptionType.STRING, "type", "FLY, VERTICAL, STRADDLE", true)
+                        .addOption(OptionType.STRING, "action", "OPEN or CLOSE", true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying (SPX, SPY, etc.)", true)
+                        .addOption(OptionType.INTEGER, "wing1", "Lower strike", true)
+                        .addOption(OptionType.INTEGER, "wing2", "Upper strike", true)
+                        .addOption(OptionType.STRING, "option_type", "c (call) or p (put)", true)
+                        .addOption(OptionType.INTEGER, "dte", "Days to expiration (0 for 0DTE)", true)
+                        .addOption(OptionType.NUMBER, "cost", "Net debit/credit (optional)", false),
 
                 // 12. Stats Command - View bot usage metrics
                 Commands.slash("stats", "View bot usage statistics and capacity"))
@@ -405,33 +409,70 @@ public class DiscordBotService extends ListenerAdapter {
      * Auto-generates legs based on strategy type.
      */
     private void spreadSlash(SlashCommandInteractionEvent event) {
-        String typeInput = event.getOption("type").getAsString();
+        String typeInput = event.getOption("type").getAsString().toUpperCase();
+        String action = event.getOption("action").getAsString().toUpperCase();
         String ticker = event.getOption("ticker").getAsString().toUpperCase();
-        String strikesInput = event.getOption("strikes").getAsString();
-        String expiryInput = event.getOption("expiry").getAsString();
-        double netCost = event.getOption("cost").getAsDouble();
+        int wing1 = event.getOption("wing1").getAsInt();
+        int wing2 = event.getOption("wing2").getAsInt();
+        String optionType = event.getOption("option_type").getAsString().toLowerCase();
+        int dte = event.getOption("dte").getAsInt();
+        Double netCost = event.getOption("cost") != null ? event.getOption("cost").getAsDouble() : null;
         String userId = event.getUser().getName();
 
         event.deferReply().queue();
 
         try {
-            // Parse inputs
+            if (action.equals("CLOSE")) {
+                // TODO: Implement close functionality
+                event.getHook().sendMessage("❌ CLOSE not implemented yet. Use /sell <id>").queue();
+                return;
+            }
+
+            // Parse strategy type and calculate middle strike for flies
             StrategyType strategyType = StrategyType.fromString(typeInput);
-            LocalDate expiration = parseExpiry(expiryInput);
-            String[] strikes = strikesInput.trim().split("\\s+");
+            LocalDate expiration = LocalDate.now().plusDays(dte);
+            int middle = (wing1 + wing2) / 2;
+
+            // Build strike strings for leg generation
+            String optSuffix = optionType.equals("p") ? "p" : "c";
+            String[] strikes;
+
+            if (strategyType == StrategyType.FLY) {
+                strikes = new String[] { wing1 + optSuffix, wing2 + optSuffix };
+            } else if (strategyType == StrategyType.VERTICAL) {
+                strikes = new String[] { wing1 + optSuffix, wing2 + optSuffix };
+            } else if (strategyType == StrategyType.STRADDLE) {
+                strikes = new String[] { wing1 + optSuffix }; // Only need one strike for straddle
+            } else {
+                throw new IllegalArgumentException("Unsupported type: " + typeInput);
+            }
 
             // Generate legs and create strategy
             ArrayList<Leg> legs = generateLegs(strategyType, strikes, expiration);
             Strategy strategy = strategyService.openStrategy(userId, strategyType.name(), ticker, legs, netCost);
 
-            // Build and send response
-            String response = buildSpreadResponse(strategyType, ticker, legs, netCost, expiration, strategy.getId());
-            event.getHook().sendMessage(response).queue();
+            // Build response
+            StringBuilder sb = new StringBuilder();
+            sb.append("✅ **" + strategyType + " Opened:** " + ticker + "\n");
+            for (Leg leg : legs) {
+                String dir = leg.getQuantity() > 0 ? "📈 LONG" : "📉 SHORT";
+                int qty = Math.abs(leg.getQuantity());
+                String qtyStr = qty > 1 ? " x" + qty : "";
+                sb.append(dir + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
+                        leg.getOptionType().toUpperCase() + "\n");
+            }
+            if (netCost != null) {
+                sb.append("💰 Net Cost: $" + String.format("%.2f", netCost) + "\n");
+            }
+            sb.append("📅 Expires: " + expiration + " (" + dte + "DTE)\n");
+            sb.append("📋 Strategy ID: " + strategy.getId());
+
+            event.getHook().sendMessage(sb.toString()).queue();
 
         } catch (Exception e) {
             e.printStackTrace();
             event.getHook().sendMessage("❌ Error: " + e.getMessage() +
-                    "\nFormat: `/spread fly SPX 6820c 6860c 30d 2.50`").queue();
+                    "\nFormat: `/spread fly open SPX 6800 6850 c 0 5.80`").queue();
         }
     }
 
