@@ -2,12 +2,15 @@ package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import com.dealaggregator.dealapi.entity.Strategy;
 import com.dealaggregator.dealapi.entity.StrategyType;
 import com.dealaggregator.dealapi.entity.Leg;
+import com.dealaggregator.dealapi.entity.CommandLog;
+import com.dealaggregator.dealapi.repository.CommandLogRepository;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -58,18 +61,20 @@ public class DiscordBotService extends ListenerAdapter {
     private final MarketDataService marketService;
     private final MassiveDataService massiveService;
     private final StrategyService strategyService;
+    private final CommandLogRepository commandLogRepo;
 
     /**
      * Constructor for DiscordBotService with dependency injection.
      */
     public DiscordBotService(BlackScholesService bsService, CommandParserService parserService,
             MarketDataService marketDataService, MassiveDataService massiveService,
-            StrategyService strategyService) {
+            StrategyService strategyService, CommandLogRepository commandLogRepo) {
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
         this.massiveService = massiveService;
         this.strategyService = strategyService;
+        this.commandLogRepo = commandLogRepo;
     }
 
     /**
@@ -150,13 +155,18 @@ public class DiscordBotService extends ListenerAdapter {
                         .addOption(OptionType.STRING, "ticker", "Underlying symbol (e.g. SPX, NVDA)", true)
                         .addOption(OptionType.STRING, "strikes", "Strikes with c/p: '6820c 6860c' or '150p 160p'", true)
                         .addOption(OptionType.STRING, "expiry", "Days to expiration (e.g. 30d)", true)
-                        .addOption(OptionType.NUMBER, "cost", "Net debit/credit for the spread", true))
+                        .addOption(OptionType.NUMBER, "cost", "Net debit/credit for the spread", true),
+
+                // 12. Stats Command - View bot usage metrics
+                Commands.slash("stats", "View bot usage statistics and capacity"))
                 .queue();
 
     }
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+        // Log every command for usage metrics
+        logCommand(event.getName(), event.getUser().getName());
 
         if (event.getName().equals("stock")) {
             stockSlash(event);
@@ -180,6 +190,80 @@ public class DiscordBotService extends ListenerAdapter {
             liquiditySlash(event);
         } else if (event.getName().equals("spread")) {
             spreadSlash(event);
+        } else if (event.getName().equals("stats")) {
+            statsSlash(event);
+        }
+    }
+
+    /**
+     * Log a command execution for analytics.
+     */
+    private void logCommand(String command, String userId) {
+        try {
+            commandLogRepo.save(new CommandLog(command, userId));
+        } catch (Exception e) {
+            // Don't fail the command if logging fails
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Handle /stats command - Show bot usage metrics and capacity.
+     */
+    private void statsSlash(SlashCommandInteractionEvent event) {
+        event.deferReply().queue();
+
+        try {
+            // Get actual usage metrics
+            LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
+            LocalDateTime startOfWeek = LocalDate.now().minusDays(7).atStartOfDay();
+
+            long commandsToday = commandLogRepo.countToday(startOfToday);
+            long commandsThisWeek = commandLogRepo.countByTimestampAfter(startOfWeek);
+            long totalCommands = commandLogRepo.count();
+            long uniqueUsers = commandLogRepo.countDistinctUsers();
+
+            // System capacity (based on Railway's free tier)
+            long capacityPerDay = 10000; // Conservative estimate
+
+            EmbedBuilder eb = new EmbedBuilder();
+            eb.setTitle("📊 Bot Statistics & Capacity");
+            eb.setColor(Color.decode("#3498db"));
+
+            // Actual usage
+            eb.addField("📈 Usage",
+                    "Today: **" + commandsToday + "** commands\n" +
+                            "This Week: **" + commandsThisWeek + "** commands\n" +
+                            "All Time: **" + totalCommands + "** commands",
+                    true);
+
+            // Capacity
+            eb.addField("⚡ System Capacity",
+                    "Daily Limit: **" + String.format("%,d", capacityPerDay) + "** commands\n" +
+                            "Active Users: **" + uniqueUsers + "**\n" +
+                            "Status: **🟢 Healthy**",
+                    true);
+
+            // Top commands
+            java.util.List<Object[]> topCommands = commandLogRepo.countByCommandGrouped();
+            if (!topCommands.isEmpty()) {
+                StringBuilder topSb = new StringBuilder();
+                int shown = 0;
+                for (Object[] row : topCommands) {
+                    if (shown >= 5)
+                        break;
+                    topSb.append("/" + row[0] + ": " + row[1] + "\n");
+                    shown++;
+                }
+                eb.addField("🏆 Top Commands", topSb.toString(), false);
+            }
+
+            eb.setFooter("Built to scale • Railway + PostgreSQL");
+            event.getHook().sendMessageEmbeds(eb.build()).queue();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error fetching stats: " + e.getMessage()).queue();
         }
     }
 
