@@ -37,8 +37,9 @@ public class Strategy {
     /** Timestamp when the strategy was opened */
     private LocalDateTime openedAt = LocalDateTime.now();
 
-    /** Current status: "OPEN" or "CLOSED" */
-    private String status = "OPEN";
+    /** Current status: OPEN or CLOSED */
+    @Enumerated(EnumType.STRING)
+    private StrategyStatus status = StrategyStatus.OPEN;
 
     /**
      * List of option legs in this strategy.

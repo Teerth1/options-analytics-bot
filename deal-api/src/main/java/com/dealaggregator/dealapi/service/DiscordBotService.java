@@ -1,11 +1,12 @@
 package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
-import LocalDate;
-import ArrayList;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import com.dealaggregator.dealapi.entity.Strategy;
+import com.dealaggregator.dealapi.entity.StrategyType;
 import com.dealaggregator.dealapi.entity.Leg;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -318,13 +319,9 @@ public class DiscordBotService extends ListenerAdapter {
     /**
      * Handle /spread command with smart templates.
      * Auto-generates legs based on strategy type.
-     * 
-     * Examples:
-     * /spread fly SPX "6820c 6860c" 30d 2.50
-     * /spread vertical NVDA "150c 155c" 14d 1.50
      */
     private void spreadSlash(SlashCommandInteractionEvent event) {
-        String strategyType = event.getOption("type").getAsString().toUpperCase();
+        String typeInput = event.getOption("type").getAsString();
         String ticker = event.getOption("ticker").getAsString().toUpperCase();
         String strikesInput = event.getOption("strikes").getAsString();
         String expiryInput = event.getOption("expiry").getAsString();
@@ -334,35 +331,18 @@ public class DiscordBotService extends ListenerAdapter {
         event.deferReply().queue();
 
         try {
-            // Parse expiration
-            String daysStr = expiryInput.toLowerCase().replace("d", "");
-            int days = Integer.parseInt(daysStr);
-            LocalDate expiration = LocalDate.now().plusDays(days);
+            // Parse inputs
+            StrategyType strategyType = StrategyType.fromString(typeInput);
+            LocalDate expiration = parseExpiry(expiryInput);
+            String[] strikes = strikesInput.trim().split("\\s+");
 
-            // Parse strikes (e.g., "6820c 6860c" or "150p 160p")
-            String[] strikeParts = strikesInput.trim().split("\\s+");
+            // Generate legs and create strategy
+            ArrayList<Leg> legs = generateLegs(strategyType, strikes, expiration);
+            Strategy strategy = strategyService.openStrategy(userId, strategyType.name(), ticker, legs);
 
-            // Generate legs based on strategy type
-            ArrayList<Leg> legs = generateLegs(strategyType, strikeParts, expiration, netCost);
-
-            // Create strategy with all legs
-            Strategy strategy = strategyService.openStrategy(userId, strategyType, ticker, legs);
-
-            // Build response message
-            StringBuilder sb = new StringBuilder();
-            sb.append("✅ **" + strategyType + " Opened:** " + ticker + "\n");
-            for (Leg leg : legs) {
-                String direction = leg.getQuantity() > 0 ? "📈 LONG" : "📉 SHORT";
-                int qty = Math.abs(leg.getQuantity());
-                String qtyStr = qty > 1 ? " x" + qty : "";
-                sb.append(direction + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
-                        leg.getOptionType().toUpperCase() + "\n");
-            }
-            sb.append("💰 Net Cost: $" + String.format("%.2f", netCost) + "\n");
-            sb.append("📅 Expires: " + expiration + "\n");
-            sb.append("📋 Strategy ID: " + strategy.getId());
-
-            event.getHook().sendMessage(sb.toString()).queue();
+            // Build and send response
+            String response = buildSpreadResponse(strategyType, ticker, legs, netCost, expiration, strategy.getId());
+            event.getHook().sendMessage(response).queue();
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -372,56 +352,79 @@ public class DiscordBotService extends ListenerAdapter {
     }
 
     /**
-     * Generate legs based on strategy type.
-     * 
-     * FLY (Butterfly): Buy low, Sell 2x middle, Buy high
-     * VERTICAL: Buy low, Sell high
-     * STRADDLE: Buy call + Buy put at same strike
-     * IRON_CONDOR: 4 legs (requires 4 strikes)
+     * Parse expiry string like "30d" into LocalDate.
      */
-    private ArrayList<Leg> generateLegs(String strategyType, String[] strikes,
-            LocalDate expiration, double netCost) {
+    private LocalDate parseExpiry(String expiryInput) {
+        String daysStr = expiryInput.toLowerCase().replace("d", "");
+        int days = Integer.parseInt(daysStr);
+        return LocalDate.now().plusDays(days);
+    }
 
+    /**
+     * Build the Discord response message for a spread.
+     */
+    private String buildSpreadResponse(StrategyType type, String ticker, ArrayList<Leg> legs,
+            double netCost, LocalDate expiration, Long strategyId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("✅ **" + type + " Opened:** " + ticker + "\n");
+
+        for (Leg leg : legs) {
+            String direction = leg.getQuantity() > 0 ? "📈 LONG" : "📉 SHORT";
+            int qty = Math.abs(leg.getQuantity());
+            String qtyStr = qty > 1 ? " x" + qty : "";
+            sb.append(direction + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
+                    leg.getOptionType().toUpperCase() + "\n");
+        }
+
+        sb.append("💰 Net Cost: $" + String.format("%.2f", netCost) + "\n");
+        sb.append("📅 Expires: " + expiration + "\n");
+        sb.append("📋 Strategy ID: " + strategyId);
+
+        return sb.toString();
+    }
+
+    /**
+     * Generate legs based on strategy type.
+     * Uses StrategyType enum for better type safety and readability.
+     */
+    private ArrayList<Leg> generateLegs(StrategyType type, String[] strikes, LocalDate expiration) {
         ArrayList<Leg> legs = new ArrayList<>();
 
-        switch (strategyType) {
-            case "FLY":
-            case "BUTTERFLY":
-                if (strikes.length < 2) {
-                    throw new IllegalArgumentException("Butterfly needs 2 strikes (low and high)");
-                }
+        switch (type) {
+            case FLY:
+                validateStrikeCount(strikes, 2, "Butterfly");
                 legs.addAll(generateButterfly(strikes[0], strikes[1], expiration));
                 break;
 
-            case "VERTICAL":
-            case "SPREAD":
-                if (strikes.length < 2) {
-                    throw new IllegalArgumentException("Vertical spread needs 2 strikes");
-                }
+            case VERTICAL:
+                validateStrikeCount(strikes, 2, "Vertical spread");
                 legs.addAll(generateVertical(strikes[0], strikes[1], expiration));
                 break;
 
-            case "STRADDLE":
-                if (strikes.length < 1) {
-                    throw new IllegalArgumentException("Straddle needs 1 strike");
-                }
+            case STRADDLE:
+                validateStrikeCount(strikes, 1, "Straddle");
                 legs.addAll(generateStraddle(strikes[0], expiration));
                 break;
 
-            case "IRON_CONDOR":
-            case "IC":
-                if (strikes.length < 4) {
-                    throw new IllegalArgumentException("Iron Condor needs 4 strikes");
-                }
+            case IRON_CONDOR:
+                validateStrikeCount(strikes, 4, "Iron Condor");
                 legs.addAll(generateIronCondor(strikes, expiration));
                 break;
 
             default:
-                throw new IllegalArgumentException("Unknown strategy type: " + strategyType +
-                        ". Use FLY, VERTICAL, STRADDLE, or IRON_CONDOR");
+                throw new IllegalArgumentException("Unsupported strategy type: " + type);
         }
 
         return legs;
+    }
+
+    /**
+     * Validate that we have enough strikes for the strategy type.
+     */
+    private void validateStrikeCount(String[] strikes, int required, String strategyName) {
+        if (strikes.length < required) {
+            throw new IllegalArgumentException(strategyName + " needs " + required + " strike(s)");
+        }
     }
 
     /**

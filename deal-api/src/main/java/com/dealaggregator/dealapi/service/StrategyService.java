@@ -3,6 +3,7 @@ package com.dealaggregator.dealapi.service;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import com.dealaggregator.dealapi.entity.Strategy;
+import com.dealaggregator.dealapi.entity.StrategyStatus;
 import com.dealaggregator.dealapi.entity.Leg;
 import com.dealaggregator.dealapi.repository.StrategyRepository;
 
@@ -51,7 +52,7 @@ public class StrategyService {
      */
     public List<Strategy> getOpenStrategies(String userId) {
 
-        return strategyRepo.findByUserIdAndStatus(userId, "OPEN");
+        return strategyRepo.findByUserIdAndStatus(userId, StrategyStatus.OPEN);
     }
 
     /**
@@ -60,7 +61,7 @@ public class StrategyService {
     public void closeStrategy(Long strategyId) {
 
         Strategy strategy = strategyRepo.findById(strategyId).get();
-        strategy.setStatus("CLOSED");
+        strategy.setStatus(StrategyStatus.CLOSED);
         strategyRepo.save(strategy);
     }
 }
