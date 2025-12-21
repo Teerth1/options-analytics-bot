@@ -38,8 +38,15 @@ public class StrategyService {
      * Create and save a new strategy with its legs.
      */
     public Strategy openStrategy(String userId, String strategyType, String ticker, List<Leg> legs) {
+        return openStrategy(userId, strategyType, ticker, legs, null);
+    }
 
-        Strategy strategy = new Strategy(userId, strategyType, ticker);
+    /**
+     * Create and save a new strategy with its legs and net cost.
+     * Use this for spreads where net debit/credit matters.
+     */
+    public Strategy openStrategy(String userId, String strategyType, String ticker, List<Leg> legs, Double netCost) {
+        Strategy strategy = new Strategy(userId, strategyType, ticker, netCost);
         for (Leg leg : legs) {
             leg.setStrategy(strategy);
         }

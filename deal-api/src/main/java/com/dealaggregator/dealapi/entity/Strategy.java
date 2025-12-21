@@ -41,6 +41,9 @@ public class Strategy {
     @Enumerated(EnumType.STRING)
     private StrategyStatus status = StrategyStatus.OPEN;
 
+    /** Net debit/credit for the entire strategy (for spreads) */
+    private Double netCost;
+
     /**
      * List of option legs in this strategy.
      * Uses cascade to automatically save/delete legs with the strategy.
@@ -56,5 +59,12 @@ public class Strategy {
         this.userId = userId;
         this.strategy = strategy;
         this.ticker = ticker;
+    }
+
+    public Strategy(String userId, String strategy, String ticker, Double netCost) {
+        this.userId = userId;
+        this.strategy = strategy;
+        this.ticker = ticker;
+        this.netCost = netCost;
     }
 }
