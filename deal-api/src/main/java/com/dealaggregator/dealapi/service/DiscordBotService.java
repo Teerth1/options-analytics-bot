@@ -162,7 +162,19 @@ public class DiscordBotService extends ListenerAdapter {
                         .addOption(OptionType.NUMBER, "cost", "Net debit/credit (optional)", false),
 
                 // 12. Stats Command - View bot usage metrics
-                Commands.slash("stats", "View bot usage statistics and capacity"))
+                Commands.slash("stats", "View bot usage statistics and capacity"),
+
+                // 13. Iron Condor Command - 4 strikes
+                // Example: /ic open SPX 6700 6750 6850 6900 0 2.50
+                Commands.slash("ic", "Open an iron condor (4 strikes)")
+                        .addOption(OptionType.STRING, "action", "OPEN or CLOSE", true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying (SPX, SPY)", true)
+                        .addOption(OptionType.INTEGER, "put_buy", "Long put strike (lowest)", true)
+                        .addOption(OptionType.INTEGER, "put_sell", "Short put strike", true)
+                        .addOption(OptionType.INTEGER, "call_sell", "Short call strike", true)
+                        .addOption(OptionType.INTEGER, "call_buy", "Long call strike (highest)", true)
+                        .addOption(OptionType.INTEGER, "dte", "Days to expiration", true)
+                        .addOption(OptionType.NUMBER, "cost", "Net credit (optional)", false))
                 .queue();
 
     }
@@ -196,6 +208,8 @@ public class DiscordBotService extends ListenerAdapter {
             spreadSlash(event);
         } else if (event.getName().equals("stats")) {
             statsSlash(event);
+        } else if (event.getName().equals("ic")) {
+            icSlash(event);
         }
     }
 
@@ -473,6 +487,62 @@ public class DiscordBotService extends ListenerAdapter {
             e.printStackTrace();
             event.getHook().sendMessage("❌ Error: " + e.getMessage() +
                     "\nFormat: `/spread fly open SPX 6800 6850 c 0 5.80`").queue();
+        }
+    }
+
+    /**
+     * Handle /ic command - Iron Condor with 4 strikes.
+     * Example: /ic open SPX 6700 6750 6850 6900 0 2.50
+     */
+    private void icSlash(SlashCommandInteractionEvent event) {
+        String action = event.getOption("action").getAsString().toUpperCase();
+        String ticker = event.getOption("ticker").getAsString().toUpperCase();
+        int putBuy = event.getOption("put_buy").getAsInt();
+        int putSell = event.getOption("put_sell").getAsInt();
+        int callSell = event.getOption("call_sell").getAsInt();
+        int callBuy = event.getOption("call_buy").getAsInt();
+        int dte = event.getOption("dte").getAsInt();
+        Double netCost = event.getOption("cost") != null ? event.getOption("cost").getAsDouble() : null;
+        String userId = event.getUser().getName();
+
+        event.deferReply().queue();
+
+        try {
+            if (action.equals("CLOSE")) {
+                event.getHook().sendMessage("❌ CLOSE not implemented yet. Use /sell <id>").queue();
+                return;
+            }
+
+            LocalDate expiration = LocalDate.now().plusDays(dte);
+
+            // Create the 4 legs of an iron condor
+            ArrayList<Leg> legs = new ArrayList<>();
+            legs.add(new Leg("put", (double) putBuy, expiration, 0.0, 1)); // Buy put (lower)
+            legs.add(new Leg("put", (double) putSell, expiration, 0.0, -1)); // Sell put
+            legs.add(new Leg("call", (double) callSell, expiration, 0.0, -1)); // Sell call
+            legs.add(new Leg("call", (double) callBuy, expiration, 0.0, 1)); // Buy call (higher)
+
+            Strategy strategy = strategyService.openStrategy(userId, "IRON_CONDOR", ticker, legs, netCost);
+
+            // Build response
+            StringBuilder sb = new StringBuilder();
+            sb.append("✅ **IRON CONDOR Opened:** " + ticker + "\n");
+            sb.append("📉 LONG $" + putBuy + " PUT\n");
+            sb.append("📈 SHORT $" + putSell + " PUT\n");
+            sb.append("📈 SHORT $" + callSell + " CALL\n");
+            sb.append("📉 LONG $" + callBuy + " CALL\n");
+            if (netCost != null) {
+                sb.append("💰 Net Credit: $" + String.format("%.2f", netCost) + "\n");
+            }
+            sb.append("📅 Expires: " + expiration + " (" + dte + "DTE)\n");
+            sb.append("📋 Strategy ID: " + strategy.getId());
+
+            event.getHook().sendMessage(sb.toString()).queue();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error: " + e.getMessage() +
+                    "\nFormat: `/ic open SPX 6700 6750 6850 6900 0 2.50`").queue();
         }
     }
 
