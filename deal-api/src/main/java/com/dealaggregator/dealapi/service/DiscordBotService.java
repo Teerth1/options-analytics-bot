@@ -62,19 +62,22 @@ public class DiscordBotService extends ListenerAdapter {
     private final MassiveDataService massiveService;
     private final StrategyService strategyService;
     private final CommandLogRepository commandLogRepo;
+    private final IndicatorService indicatorService;
 
     /**
      * Constructor for DiscordBotService with dependency injection.
      */
     public DiscordBotService(BlackScholesService bsService, CommandParserService parserService,
             MarketDataService marketDataService, MassiveDataService massiveService,
-            StrategyService strategyService, CommandLogRepository commandLogRepo) {
+            StrategyService strategyService, CommandLogRepository commandLogRepo,
+            IndicatorService indicatorService) {
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
         this.massiveService = massiveService;
         this.strategyService = strategyService;
         this.commandLogRepo = commandLogRepo;
+        this.indicatorService = indicatorService;
     }
 
     /**
@@ -174,7 +177,11 @@ public class DiscordBotService extends ListenerAdapter {
                         .addOption(OptionType.INTEGER, "call_sell", "Short call strike", true)
                         .addOption(OptionType.INTEGER, "call_buy", "Long call strike (highest)", true)
                         .addOption(OptionType.INTEGER, "dte", "Days to expiration", true)
-                        .addOption(OptionType.NUMBER, "cost", "Net credit (optional)", false))
+                        .addOption(OptionType.NUMBER, "cost", "Net credit (optional)", false),
+
+                // 14. Python Indicator Command
+                Commands.slash("indicator", "Get mean reversion indicators for a ticker")
+                        .addOption(OptionType.STRING, "ticker", "Stock symbol (e.g. SPY)", true))
                 .queue();
 
     }
@@ -210,6 +217,8 @@ public class DiscordBotService extends ListenerAdapter {
             statsSlash(event);
         } else if (event.getName().equals("ic")) {
             icSlash(event);
+        } else if (event.getName().equals("indicator")) {
+            indicatorSlash(event);
         }
     }
 
@@ -282,6 +291,61 @@ public class DiscordBotService extends ListenerAdapter {
         } catch (Exception e) {
             e.printStackTrace();
             event.getHook().sendMessage("❌ Error fetching stats: " + e.getMessage()).queue();
+        }
+    }
+
+    /**
+     * Handle /indicator command - Get mean reversion indicators from Python API.
+     */
+    private void indicatorSlash(SlashCommandInteractionEvent event) {
+        String ticker = event.getOption("ticker").getAsString().toUpperCase();
+
+        event.deferReply().queue();
+
+        try {
+            // Call the Flask Python API
+            java.util.Map<String, Object> data = indicatorService.getAllIndicators(ticker);
+
+            // Extract values from the response
+            Double zscore = (Double) data.get("zscore");
+            String signal = (String) data.get("signal");
+            Double halfLife = (Double) data.get("half_life");
+            Double acf = (Double) data.get("acf");
+
+            // Determine color based on signal
+            Color embedColor;
+            if ("OVERSOLD".equals(signal)) {
+                embedColor = Color.GREEN;
+            } else if ("OVERBOUGHT".equals(signal)) {
+                embedColor = Color.RED;
+            } else {
+                embedColor = Color.GRAY;
+            }
+
+            // Build embed
+            EmbedBuilder eb = new EmbedBuilder();
+            eb.setTitle("📊 Mean Reversion Indicators: " + ticker);
+            eb.setColor(embedColor);
+
+            // Z-Score
+            String zEmoji = zscore < -2 ? "🟢" : (zscore > 2 ? "🔴" : "⚪");
+            eb.addField("Z-Score", zEmoji + " " + String.format("%.2f", zscore) + " (" + signal + ")", true);
+
+            // Half-Life
+            String hlEmoji = halfLife < 50 ? "✅" : "⚠️";
+            eb.addField("Half-Life", hlEmoji + " " + String.format("%.1f", halfLife) + " bars", true);
+
+            // ACF
+            String acfEmoji = acf < -0.05 ? "📉 Mean Reverting" : (acf > 0.05 ? "📈 Trending" : "➡️ Neutral");
+            eb.addField("ACF Lag-1", String.format("%.4f", acf) + " " + acfEmoji, false);
+
+            eb.setFooter("Powered by Python Indicators API");
+            event.getHook().sendMessageEmbeds(eb.build()).queue();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.getHook().sendMessage("❌ Error: " + e.getMessage() +
+                    "\n⚠️ Make sure the Python API is running: `python api.py`").queue();
         }
     }
 
