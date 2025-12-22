@@ -344,8 +344,9 @@ public class DiscordBotService extends ListenerAdapter {
 
         } catch (Exception e) {
             e.printStackTrace();
-            event.getHook().sendMessage("❌ Error: " + e.getMessage() +
-                    "\n⚠️ Make sure the Python API is running: `python api.py`").queue();
+            String errMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            event.getHook().sendMessage("❌ Error: " + errMsg +
+                    "\n⚠️ Lambda API may be initializing. Try again in a few seconds.").queue();
         }
     }
 
