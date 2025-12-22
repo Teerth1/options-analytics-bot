@@ -13,13 +13,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class IndicatorService {
-    private static final String FLASK_URL = "http://localhost:5001";
+    // AWS Lambda API Gateway URL
+    private static final String API_URL = "https://2hs6pnvedh.execute-api.us-east-2.amazonaws.com";
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public Map<String, Object> getAllIndicators(String ticker) throws Exception {
-        // 1. Build request URL
-        String url = FLASK_URL + "/indicators/all?ticker=" + ticker;
+        // 1. Build request URL (API Gateway route: /{action}?ticker=XXX)
+        String url = API_URL + "/all?ticker=" + ticker;
 
         // 2. Create HTTP GET request
         HttpRequest request = HttpRequest.newBuilder()
