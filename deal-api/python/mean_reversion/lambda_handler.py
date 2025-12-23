@@ -3,48 +3,95 @@ AWS Lambda Handler for Indicators API
 
 This converts the Flask API logic into a Lambda-compatible format.
 API Gateway will invoke this handler with HTTP request events.
+
+Security: Requires X-API-Key header for authentication.
+Observability: Structured logging for request tracing.
 """
 import json
+import os
+import logging
 from indicators import calculate_zscore, calculate_half_life, calculate_acf
 from data_fetcher import fetch_ohlcv
+
+# Configure structured logging for CloudWatch
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# API Key from environment variable (set in Lambda config)
+API_KEY = os.environ.get('API_KEY', '')
 
 
 def lambda_handler(event, context):
     """
     Main Lambda entry point.
     
-    API Gateway sends events like:
-    {
-        "pathParameters": {"action": "all"},
-        "queryStringParameters": {"ticker": "SPY"}
-    }
+    Security: Validates X-API-Key header before processing.
+    Observability: Logs all requests with context for tracing.
     """
+    # Extract request details for logging
+    request_id = context.aws_request_id if context else 'local'
+    path = event.get('pathParameters', {})
+    params = event.get('queryStringParameters', {}) or {}
+    headers = event.get('headers', {}) or {}
+    
+    action = path.get('action', 'all')
+    ticker = params.get('ticker', 'unknown')
+    
+    # Log incoming request (observability)
+    logger.info(json.dumps({
+        "event": "request_received",
+        "request_id": request_id,
+        "action": action,
+        "ticker": ticker,
+        "source_ip": event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
+    }))
+    
     try:
-        # Get path and query params
-        path = event.get('pathParameters', {})
-        params = event.get('queryStringParameters', {}) or {}
+        # API Key Authentication (skip for health check)
+        if action != 'health' and API_KEY:
+            provided_key = headers.get('x-api-key') or headers.get('X-API-Key', '')
+            if provided_key != API_KEY:
+                logger.warning(json.dumps({
+                    "event": "auth_failed",
+                    "request_id": request_id,
+                    "reason": "invalid_api_key"
+                }))
+                return response(401, {"error": "Unauthorized - Invalid API key"})
         
-        action = path.get('action', 'all')
-        ticker = params.get('ticker')
-        
-        if not ticker:
+        if not ticker or ticker == 'unknown':
             return response(400, {"error": "ticker parameter is required"})
         
         # Route to appropriate handler
         if action == 'health':
             return response(200, {"status": "ok"})
         elif action == 'zscore':
-            return get_zscore(ticker, params)
+            result = get_zscore(ticker, params)
         elif action == 'halflife':
-            return get_halflife(ticker, params)
+            result = get_halflife(ticker, params)
         elif action == 'acf':
-            return get_acf(ticker, params)
+            result = get_acf(ticker, params)
         elif action == 'all':
-            return get_all(ticker, params)
+            result = get_all(ticker, params)
         else:
             return response(404, {"error": f"Unknown action: {action}"})
+        
+        # Log successful response
+        logger.info(json.dumps({
+            "event": "request_completed",
+            "request_id": request_id,
+            "action": action,
+            "ticker": ticker,
+            "status": "success"
+        }))
+        
+        return result
             
     except Exception as e:
+        logger.error(json.dumps({
+            "event": "request_error",
+            "request_id": request_id,
+            "error": str(e)
+        }))
         return response(500, {"error": str(e)})
 
 
