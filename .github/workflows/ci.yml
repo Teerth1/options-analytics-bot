@@ -60,13 +60,13 @@ jobs:
 
   # ============================================
   # Deploy Python Lambda function to AWS
-  # Only runs on push to master branch
+  # TEMPORARILY DISABLED - needs S3 bucket setup
   # ============================================
   deploy-lambda:
     name: Deploy Lambda
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: false  # TODO: Enable after creating S3 bucket
 
     steps:
       - name: Checkout code
@@ -93,12 +93,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
-      # Deploy to Lambda
+      # Deploy to Lambda via S3 (bypasses 50MB direct upload limit)
       - name: Deploy to AWS Lambda
         run: |
+          # Upload to S3 first (handles large files)
+          aws s3 cp deal-api/python/mean_reversion/lambda_deployment.zip \
+            s3://lambda-deployments-teerth/indicator-api/lambda_deployment.zip
+          
+          # Deploy from S3
           aws lambda update-function-code \
             --function-name indicator-api \
-            --zip-file fileb://deal-api/python/mean_reversion/lambda_deployment.zip
+            --s3-bucket lambda-deployments-teerth \
+            --s3-key indicator-api/lambda_deployment.zip
           
           # Set API Key environment variable for authentication
           aws lambda update-function-configuration \
