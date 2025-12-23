@@ -1,0 +1,23 @@
+# Ignore build artifacts
+target/
+
+# Ignore environment files
+.env
+.env.*
+!.env.example
+
+# Ignore IDE files
+.idea/
+*.iml
+.vscode/
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore Python deployment package (large)
+python/mean_reversion/package/
+python/mean_reversion/lambda_deployment.zip
+
+# Ignore logs
+*.log
