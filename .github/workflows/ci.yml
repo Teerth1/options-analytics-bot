@@ -76,8 +76,8 @@ jobs:
       - name: Package Lambda with Docker
         working-directory: deal-api/python/mean_reversion
         run: |
-          docker run --rm -v "${PWD}:/var/task" public.ecr.aws/lambda/python:3.12 \
-            pip install -r requirements.txt -t /var/task/package --upgrade
+          docker run --rm --entrypoint /bin/bash -v "${PWD}:/var/task" public.ecr.aws/lambda/python:3.12 \
+            -c "pip install -r /var/task/requirements.txt -t /var/task/package --upgrade"
           cp *.py package/
           cd package && zip -r ../lambda_deployment.zip .
 
