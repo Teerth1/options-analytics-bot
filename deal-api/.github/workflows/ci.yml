@@ -93,4 +93,10 @@ jobs:
           aws lambda update-function-code \
             --function-name indicator-api \
             --zip-file fileb://python/mean_reversion/lambda_deployment.zip
+          
+          # Set API Key environment variable for authentication
+          aws lambda update-function-configuration \
+            --function-name indicator-api \
+            --environment "Variables={API_KEY=${{ secrets.LAMBDA_API_KEY }}}"
+
 
