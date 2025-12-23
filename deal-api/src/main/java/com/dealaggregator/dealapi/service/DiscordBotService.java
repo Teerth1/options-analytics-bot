@@ -181,7 +181,36 @@ public class DiscordBotService extends ListenerAdapter {
 
                 // 14. Python Indicator Command
                 Commands.slash("indicator", "Get mean reversion indicators for a ticker")
-                        .addOption(OptionType.STRING, "ticker", "Stock symbol (e.g. SPY)", true))
+                        .addOption(OptionType.STRING, "ticker", "Stock symbol (e.g. SPY)", true),
+
+                // 15. Straddle Command - Buy call + put at same strike
+                Commands.slash("straddle", "Open a straddle (call + put at same strike)")
+                        .addOption(OptionType.STRING, "action", "OPEN or CLOSE", true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying (SPY, QQQ, etc.)", true)
+                        .addOption(OptionType.INTEGER, "strike", "Strike price for both legs", true)
+                        .addOption(OptionType.INTEGER, "dte", "Days to expiration", true)
+                        .addOption(OptionType.NUMBER, "cost", "Net debit paid (optional)", false),
+
+                // 16. Vertical Spread Command - Bull/bear spread
+                Commands.slash("vertical", "Open a vertical spread (2 strikes)")
+                        .addOption(OptionType.STRING, "action", "OPEN or CLOSE", true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying (SPY, QQQ, etc.)", true)
+                        .addOption(OptionType.STRING, "type", "CALL or PUT", true)
+                        .addOption(OptionType.INTEGER, "long_strike", "Strike you BUY", true)
+                        .addOption(OptionType.INTEGER, "short_strike", "Strike you SELL", true)
+                        .addOption(OptionType.INTEGER, "dte", "Days to expiration", true)
+                        .addOption(OptionType.NUMBER, "cost", "Net debit/credit (optional)", false),
+
+                // 17. Butterfly Command - 3 strikes
+                Commands.slash("fly", "Open a butterfly spread (3 strikes)")
+                        .addOption(OptionType.STRING, "action", "OPEN or CLOSE", true)
+                        .addOption(OptionType.STRING, "ticker", "Underlying (SPY, QQQ, etc.)", true)
+                        .addOption(OptionType.STRING, "type", "CALL or PUT", true)
+                        .addOption(OptionType.INTEGER, "low", "Lower wing strike (BUY)", true)
+                        .addOption(OptionType.INTEGER, "mid", "Middle strike (SELL x2)", true)
+                        .addOption(OptionType.INTEGER, "high", "Upper wing strike (BUY)", true)
+                        .addOption(OptionType.INTEGER, "dte", "Days to expiration", true)
+                        .addOption(OptionType.NUMBER, "cost", "Net debit paid (optional)", false))
                 .queue();
 
     }
@@ -219,6 +248,12 @@ public class DiscordBotService extends ListenerAdapter {
             icSlash(event);
         } else if (event.getName().equals("indicator")) {
             indicatorSlash(event);
+        } else if (event.getName().equals("straddle")) {
+            straddleSlash(event);
+        } else if (event.getName().equals("vertical")) {
+            verticalSlash(event);
+        } else if (event.getName().equals("fly")) {
+            flySlash(event);
         }
     }
 
@@ -1047,6 +1082,131 @@ public class DiscordBotService extends ListenerAdapter {
             event.getHook().sendMessageEmbeds(eb.build()).queue();
         } catch (Exception e) {
             e.printStackTrace();
+            event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
+        }
+    }
+
+    /**
+     * Handle /straddle command - Buy call + put at same strike
+     */
+    private void straddleSlash(SlashCommandInteractionEvent event) {
+        event.deferReply().queue();
+
+        try {
+            String action = event.getOption("action").getAsString().toUpperCase();
+            String ticker = event.getOption("ticker").getAsString().toUpperCase();
+            int strike = event.getOption("strike").getAsInt();
+            int dte = event.getOption("dte").getAsInt();
+            double cost = event.getOption("cost") != null ? event.getOption("cost").getAsDouble() : 0.0;
+
+            LocalDate expiration = LocalDate.now().plusDays(dte);
+            String userId = event.getUser().getName();
+
+            if (action.equals("OPEN")) {
+                ArrayList<Leg> legs = new ArrayList<>();
+                legs.add(new Leg("call", (double) strike, expiration, cost / 2, 1));
+                legs.add(new Leg("put", (double) strike, expiration, cost / 2, 1));
+
+                Strategy strategy = strategyService.openStrategy(userId, "STRADDLE", ticker, legs, cost);
+
+                event.getHook().sendMessage(
+                        "✅ **STRADDLE OPENED**\n" +
+                                "📈 " + ticker + " $" + strike + " CALL\n" +
+                                "📉 " + ticker + " $" + strike + " PUT\n" +
+                                "📅 Exp: " + expiration + "\n" +
+                                "💰 Net Debit: $" + cost + "\n" +
+                                "🆔 Strategy #" + strategy.getId())
+                        .queue();
+            } else {
+                event.getHook().sendMessage("Use /portfolio and /sell <id> to close positions").queue();
+            }
+        } catch (Exception e) {
+            event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
+        }
+    }
+
+    /**
+     * Handle /vertical command - Bull/Bear spread (2 strikes)
+     */
+    private void verticalSlash(SlashCommandInteractionEvent event) {
+        event.deferReply().queue();
+
+        try {
+            String action = event.getOption("action").getAsString().toUpperCase();
+            String ticker = event.getOption("ticker").getAsString().toUpperCase();
+            String type = event.getOption("type").getAsString().toLowerCase();
+            int longStrike = event.getOption("long_strike").getAsInt();
+            int shortStrike = event.getOption("short_strike").getAsInt();
+            int dte = event.getOption("dte").getAsInt();
+            double cost = event.getOption("cost") != null ? event.getOption("cost").getAsDouble() : 0.0;
+
+            LocalDate expiration = LocalDate.now().plusDays(dte);
+            String userId = event.getUser().getName();
+
+            if (action.equals("OPEN")) {
+                ArrayList<Leg> legs = new ArrayList<>();
+                legs.add(new Leg(type, (double) longStrike, expiration, 0.0, 1)); // Buy
+                legs.add(new Leg(type, (double) shortStrike, expiration, 0.0, -1)); // Sell
+
+                Strategy strategy = strategyService.openStrategy(userId, "VERTICAL", ticker, legs, cost);
+
+                String direction = longStrike < shortStrike ? "BULL" : "BEAR";
+                event.getHook().sendMessage(
+                        "✅ **" + direction + " " + type.toUpperCase() + " SPREAD OPENED**\n" +
+                                "📈 BUY $" + longStrike + " " + type.toUpperCase() + "\n" +
+                                "📉 SELL $" + shortStrike + " " + type.toUpperCase() + "\n" +
+                                "📅 Exp: " + expiration + "\n" +
+                                "💰 Net: $" + cost + "\n" +
+                                "🆔 Strategy #" + strategy.getId())
+                        .queue();
+            } else {
+                event.getHook().sendMessage("Use /portfolio and /sell <id> to close positions").queue();
+            }
+        } catch (Exception e) {
+            event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
+        }
+    }
+
+    /**
+     * Handle /fly command - Butterfly spread (3 strikes)
+     */
+    private void flySlash(SlashCommandInteractionEvent event) {
+        event.deferReply().queue();
+
+        try {
+            String action = event.getOption("action").getAsString().toUpperCase();
+            String ticker = event.getOption("ticker").getAsString().toUpperCase();
+            String type = event.getOption("type").getAsString().toLowerCase();
+            int low = event.getOption("low").getAsInt();
+            int mid = event.getOption("mid").getAsInt();
+            int high = event.getOption("high").getAsInt();
+            int dte = event.getOption("dte").getAsInt();
+            double cost = event.getOption("cost") != null ? event.getOption("cost").getAsDouble() : 0.0;
+
+            LocalDate expiration = LocalDate.now().plusDays(dte);
+            String userId = event.getUser().getName();
+
+            if (action.equals("OPEN")) {
+                ArrayList<Leg> legs = new ArrayList<>();
+                legs.add(new Leg(type, (double) low, expiration, 0.0, 1)); // Buy lower wing
+                legs.add(new Leg(type, (double) mid, expiration, 0.0, -2)); // Sell middle x2
+                legs.add(new Leg(type, (double) high, expiration, 0.0, 1)); // Buy upper wing
+
+                Strategy strategy = strategyService.openStrategy(userId, "FLY", ticker, legs, cost);
+
+                event.getHook().sendMessage(
+                        "✅ **BUTTERFLY OPENED**\n" +
+                                "📈 BUY $" + low + " " + type.toUpperCase() + "\n" +
+                                "📉 SELL 2x $" + mid + " " + type.toUpperCase() + "\n" +
+                                "📈 BUY $" + high + " " + type.toUpperCase() + "\n" +
+                                "📅 Exp: " + expiration + "\n" +
+                                "💰 Net Debit: $" + cost + "\n" +
+                                "🆔 Strategy #" + strategy.getId())
+                        .queue();
+            } else {
+                event.getHook().sendMessage("Use /portfolio and /sell <id> to close positions").queue();
+            }
+        } catch (Exception e) {
             event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
         }
     }
