@@ -2,17 +2,20 @@ package com.dealaggregator.dealapi.service;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Service
 public class MarketDataService {
 
     /**
-     * Scrapes the current price of a stock/ticker from CNBC or similar source.
+     * Scrapes the current price of a stock/ticker from CNBC.
+     * Results are cached for 5 minutes to reduce external API calls.
      * 
      * @param ticker The stock symbol (e.g. "NVDA")
      * @return The current price, or 0.0 if not found/error
      */
+    @Cacheable(value = "stockPrices", key = "#ticker")
     public double getPrice(String ticker) {
         try {
             // URL for CNBC Quote Page (e.g. https://www.cnbc.com/quotes/NVDA)
