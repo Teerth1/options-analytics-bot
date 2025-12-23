@@ -10,9 +10,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [master, develop]
 
 jobs:
   test:
@@ -58,13 +58,13 @@ jobs:
 
   # ============================================
   # Deploy Python Lambda function to AWS
-  # Only runs on push to main branch
+  # Only runs on push to master branch
   # ============================================
   deploy-lambda:
     name: Deploy Lambda
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
 
     steps:
       - name: Checkout code
