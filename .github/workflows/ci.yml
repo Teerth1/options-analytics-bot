@@ -77,9 +77,9 @@ jobs:
         working-directory: deal-api/python/mean_reversion
         run: |
           docker run --rm --entrypoint /bin/bash -v "${PWD}:/var/task" public.ecr.aws/lambda/python:3.12 \
-            -c "pip install -r /var/task/requirements.txt -t /var/task/package --upgrade"
-          cp *.py package/
-          cd package && zip -r ../lambda_deployment.zip .
+            -c "pip install -r /var/task/requirements.txt -t /var/task/package --upgrade && \
+                cp /var/task/*.py /var/task/package/ && \
+                cd /var/task/package && zip -r /var/task/lambda_deployment.zip ."
 
       # Configure AWS credentials from GitHub Secrets
       - name: Configure AWS credentials
