@@ -76,11 +76,14 @@ jobs:
       - name: Package Lambda with Docker
         working-directory: deal-api/python/mean_reversion
         run: |
-          docker run --rm --entrypoint /bin/bash -v "${PWD}:/var/task" public.ecr.aws/lambda/python:3.12 \
-            -c "yum install -y zip && \
-                pip install -r /var/task/requirements.txt -t /var/task/package --upgrade && \
-                cp /var/task/*.py /var/task/package/ && \
-                cd /var/task/package && zip -r /var/task/lambda_deployment.zip ."
+          # Install dependencies in Docker for Linux compatibility
+          docker run --rm -v "${PWD}:/var/task" --entrypoint pip public.ecr.aws/lambda/python:3.12 \
+            install -r /var/task/requirements.txt -t /var/task/package --upgrade
+          # Fix permissions (Docker creates as root)
+          sudo chown -R $USER:$USER package/
+          # Copy Python files and create zip
+          cp *.py package/
+          cd package && zip -r ../lambda_deployment.zip .
 
       # Configure AWS credentials from GitHub Secrets
       - name: Configure AWS credentials
