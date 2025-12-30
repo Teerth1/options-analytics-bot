@@ -106,6 +106,9 @@ jobs:
             --s3-bucket indicator-lambda-teerth \
             --s3-key lambda_deployment.zip
           
+          # Wait for Lambda to finish updating
+          aws lambda wait function-updated --function-name indicator-api
+          
           # Set API Key environment variable for authentication
           aws lambda update-function-configuration \
             --function-name indicator-api \
