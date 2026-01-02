@@ -1258,8 +1258,8 @@ public class DiscordBotService extends ListenerAdapter {
                 return;
             }
 
-            // Default to SPX
-            String ticker = "SPX";
+            // Default to SPX (Yahoo uses ^SPX for index options)
+            String ticker = "^SPX";
 
             // 1. Get current spot price
             double spotPrice = marketService.getPrice(ticker);
