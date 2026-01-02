@@ -1,6 +1,7 @@
 package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -1282,7 +1283,7 @@ public class DiscordBotService extends ListenerAdapter {
 
             if (callData.isEmpty() || putData.isEmpty()) {
                 event.getChannel().sendMessage(
-                        "❌ Invalid DTE param was given. Please ensure the DTE implies a valid date (DTE may imply a weekend?)")
+                        "❌ Could not fetch options data. SPX options may not be available via Yahoo Finance.")
                         .queue();
                 return;
             }
@@ -1292,11 +1293,24 @@ public class DiscordBotService extends ListenerAdapter {
             double putMid = (putData.get().getBid() + putData.get().getAsk()) / 2;
             double straddlePrice = callMid + putMid;
 
-            // 5. Format response like VS-Calculon
-            LocalDate expDate = LocalDate.now().plusDays(dte);
+            // 5. Calculate requested date and adjust for weekends
+            LocalDate requestedDate = LocalDate.now().plusDays(dte);
+            LocalDate tradingDate = requestedDate;
+            String weekendNote = "";
+
+            // If weekend, find next Monday
+            if (requestedDate.getDayOfWeek() == DayOfWeek.SATURDAY) {
+                tradingDate = requestedDate.plusDays(2); // Saturday -> Monday
+                weekendNote = "\n⚠️ *Requested date was Saturday, using Monday*";
+            } else if (requestedDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+                tradingDate = requestedDate.plusDays(1); // Sunday -> Monday
+                weekendNote = "\n⚠️ *Requested date was Sunday, using Monday*";
+            }
+
+            // 6. Format response like VS-Calculon
             String response = String.format(
-                    "**Date:** %s\n**Straddle:** %.2f\n**Strike Used:** %.1f\n**Spot Price:** %.2f",
-                    expDate, straddlePrice, atmStrike, spotPrice);
+                    "**Date:** %s\n**Straddle:** %.2f\n**Strike Used:** %.1f\n**Spot Price:** %.2f%s",
+                    tradingDate, straddlePrice, atmStrike, spotPrice, weekendNote);
 
             event.getChannel().sendMessage(response).queue();
 
