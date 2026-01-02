@@ -1,7 +1,6 @@
 package com.dealaggregator.dealapi.service;
 
 import java.awt.Color;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -66,6 +65,7 @@ public class DiscordBotService extends ListenerAdapter {
     private final StrategyService strategyService;
     private final CommandLogRepository commandLogRepo;
     private final IndicatorService indicatorService;
+    private final SchwabApiService schwabService;
 
     /**
      * Constructor for DiscordBotService with dependency injection.
@@ -73,7 +73,7 @@ public class DiscordBotService extends ListenerAdapter {
     public DiscordBotService(BlackScholesService bsService, CommandParserService parserService,
             MarketDataService marketDataService, MassiveDataService massiveService,
             StrategyService strategyService, CommandLogRepository commandLogRepo,
-            IndicatorService indicatorService) {
+            IndicatorService indicatorService, SchwabApiService schwabService) {
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
@@ -81,6 +81,7 @@ public class DiscordBotService extends ListenerAdapter {
         this.strategyService = strategyService;
         this.commandLogRepo = commandLogRepo;
         this.indicatorService = indicatorService;
+        this.schwabService = schwabService;
     }
 
     /**
@@ -1259,58 +1260,25 @@ public class DiscordBotService extends ListenerAdapter {
                 return;
             }
 
-            // SPX ticker formats differ by data source
-            String priceTicker = ".SPX"; // CNBC uses .SPX for S&P 500 index
-            String optionsTicker = "^SPX"; // Yahoo uses ^SPX for index options
+            // Fetch SPX straddle from Schwab API
+            Optional<SchwabApiService.SPXStraddle> straddleData = schwabService.getSpxStraddle(dte);
 
-            // 1. Get current spot price from CNBC
-            double spotPrice = marketService.getPrice(priceTicker);
-            if (spotPrice == 0.0) {
-                event.getChannel().sendMessage("❌ Could not fetch spot price for SPX").queue();
-                return;
-            }
-
-            // 2. Find ATM strike (round to nearest 5 for SPX)
-            double atmStrike = Math.round(spotPrice / 5.0) * 5.0;
-
-            // 3. Get call and put prices at ATM from Yahoo
-            Optional<MassiveDataService.OptionSnapshot> callData = massiveService.getOptionSnapshot(optionsTicker,
-                    atmStrike,
-                    "call", dte);
-            Optional<MassiveDataService.OptionSnapshot> putData = massiveService.getOptionSnapshot(optionsTicker,
-                    atmStrike,
-                    "put", dte);
-
-            if (callData.isEmpty() || putData.isEmpty()) {
+            if (straddleData.isEmpty()) {
                 event.getChannel().sendMessage(
-                        "❌ Could not fetch options data. SPX options may not be available via Yahoo Finance.")
+                        "❌ Could not fetch SPX options data from Schwab. Please ensure the API is configured correctly.")
                         .queue();
                 return;
             }
 
-            // 4. Calculate straddle price (mid of bid/ask for each)
-            double callMid = (callData.get().getBid() + callData.get().getAsk()) / 2;
-            double putMid = (putData.get().getBid() + putData.get().getAsk()) / 2;
-            double straddlePrice = callMid + putMid;
+            SchwabApiService.SPXStraddle straddle = straddleData.get();
 
-            // 5. Calculate requested date and adjust for weekends
-            LocalDate requestedDate = LocalDate.now().plusDays(dte);
-            LocalDate tradingDate = requestedDate;
-            String weekendNote = "";
-
-            // If weekend, find next Monday
-            if (requestedDate.getDayOfWeek() == DayOfWeek.SATURDAY) {
-                tradingDate = requestedDate.plusDays(2); // Saturday -> Monday
-                weekendNote = "\n⚠️ *Requested date was Saturday, using Monday*";
-            } else if (requestedDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
-                tradingDate = requestedDate.plusDays(1); // Sunday -> Monday
-                weekendNote = "\n⚠️ *Requested date was Sunday, using Monday*";
-            }
-
-            // 6. Format response like VS-Calculon
+            // Format response like VS-Calculon
             String response = String.format(
-                    "**Date:** %s\n**Straddle:** %.2f\n**Strike Used:** %.1f\n**Spot Price:** %.2f%s",
-                    tradingDate, straddlePrice, atmStrike, spotPrice, weekendNote);
+                    "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f",
+                    straddle.getExpirationDate(),
+                    straddle.getStraddlePrice(),
+                    straddle.getStrike(),
+                    straddle.getUnderlyingPrice());
 
             event.getChannel().sendMessage(response).queue();
 
