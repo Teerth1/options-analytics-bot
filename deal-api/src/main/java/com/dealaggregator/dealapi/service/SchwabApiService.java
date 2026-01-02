@@ -98,11 +98,22 @@ public class SchwabApiService {
         }
 
         try {
+            // Trim inputs to remove accidental whitespace
+            String safeClientId = clientId.trim();
+            String safeClientSecret = clientSecret.trim();
+            String safeRefreshToken = refreshToken.trim();
+
+            if (safeClientId.isEmpty() || safeClientSecret.isEmpty() || safeRefreshToken.isEmpty()) {
+                logger.error(
+                        "Schwab credentials missing. Ensure SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET, and SCHWAB_REFRESH_TOKEN are set.");
+                return;
+            }
+
             String auth = Base64.getEncoder().encodeToString(
-                    (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
+                    (safeClientId + ":" + safeClientSecret).getBytes(StandardCharsets.UTF_8));
 
             String body = "grant_type=refresh_token&refresh_token=" +
-                    URLEncoder.encode(refreshToken, StandardCharsets.UTF_8);
+                    URLEncoder.encode(safeRefreshToken, StandardCharsets.UTF_8);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(TOKEN_URL))
@@ -120,10 +131,14 @@ public class SchwabApiService {
                 tokenExpiresAt = System.currentTimeMillis() + (expiresIn - 60) * 1000L; // Refresh 1 min early
                 logger.info("Schwab access token refreshed successfully");
             } else {
-                logger.error("Failed to refresh Schwab token: {} - {}", response.statusCode(), response.body());
+                logger.error("Failed to refresh Schwab token. Status: {}. Response: {}", response.statusCode(),
+                        response.body());
+                // Force reset access token
+                accessToken = null;
             }
         } catch (Exception e) {
             logger.error("Error refreshing Schwab token", e);
+            accessToken = null;
         }
     }
 
@@ -137,7 +152,7 @@ public class SchwabApiService {
         refreshAccessToken();
 
         if (accessToken == null) {
-            logger.error("No valid Schwab access token");
+            logger.error("No valid Schwab access token available after refresh attempt");
             return Optional.empty();
         }
 
