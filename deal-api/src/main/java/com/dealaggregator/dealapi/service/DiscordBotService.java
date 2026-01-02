@@ -1258,23 +1258,26 @@ public class DiscordBotService extends ListenerAdapter {
                 return;
             }
 
-            // Default to SPX (Yahoo uses ^SPX for index options)
-            String ticker = "^SPX";
+            // SPX ticker formats differ by data source
+            String priceTicker = ".SPX"; // CNBC uses .SPX for S&P 500 index
+            String optionsTicker = "^SPX"; // Yahoo uses ^SPX for index options
 
-            // 1. Get current spot price
-            double spotPrice = marketService.getPrice(ticker);
+            // 1. Get current spot price from CNBC
+            double spotPrice = marketService.getPrice(priceTicker);
             if (spotPrice == 0.0) {
-                event.getChannel().sendMessage("❌ Could not fetch spot price for " + ticker).queue();
+                event.getChannel().sendMessage("❌ Could not fetch spot price for SPX").queue();
                 return;
             }
 
             // 2. Find ATM strike (round to nearest 5 for SPX)
             double atmStrike = Math.round(spotPrice / 5.0) * 5.0;
 
-            // 3. Get call and put prices at ATM
-            Optional<MassiveDataService.OptionSnapshot> callData = massiveService.getOptionSnapshot(ticker, atmStrike,
+            // 3. Get call and put prices at ATM from Yahoo
+            Optional<MassiveDataService.OptionSnapshot> callData = massiveService.getOptionSnapshot(optionsTicker,
+                    atmStrike,
                     "call", dte);
-            Optional<MassiveDataService.OptionSnapshot> putData = massiveService.getOptionSnapshot(ticker, atmStrike,
+            Optional<MassiveDataService.OptionSnapshot> putData = massiveService.getOptionSnapshot(optionsTicker,
+                    atmStrike,
                     "put", dte);
 
             if (callData.isEmpty() || putData.isEmpty()) {
