@@ -21,9 +21,11 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 
 /**
  * Service class for Discord bot integration.
@@ -97,6 +99,7 @@ public class DiscordBotService extends ListenerAdapter {
     public void startBot() throws InterruptedException {
         // Build and configure the JDA instance
         JDA jda = JDABuilder.createDefault(botToken)
+                .enableIntents(GatewayIntent.MESSAGE_CONTENT) // Enable reading message text for !commands
                 .addEventListeners(this)
                 .setActivity(Activity.watching("Market Trends"))
                 .build();
@@ -1208,6 +1211,94 @@ public class DiscordBotService extends ListenerAdapter {
             }
         } catch (Exception e) {
             event.getHook().sendMessage("❌ Error: " + e.getMessage()).queue();
+        }
+    }
+
+    // ============================================
+    // MESSAGE COMMANDS (prefix-based, no boxes)
+    // ============================================
+
+    /**
+     * Handle message-based commands like !strad 0
+     * These are simpler than slash commands - just parse the message text.
+     */
+    @Override
+    public void onMessageReceived(MessageReceivedEvent event) {
+        // Ignore messages from bots (including ourselves)
+        if (event.getAuthor().isBot())
+            return;
+
+        String message = event.getMessage().getContentRaw().trim();
+
+        // Handle !strad <dte> command
+        if (message.toLowerCase().startsWith("!strad")) {
+            handleStradCommand(event, message);
+        }
+    }
+
+    /**
+     * Handle !strad <dte> command
+     * Example: !strad 0 -> Shows 0DTE SPX ATM straddle price
+     * Example: !strad 7 -> Shows 7DTE SPX ATM straddle price
+     */
+    private void handleStradCommand(MessageReceivedEvent event, String message) {
+        try {
+            // Parse DTE from message: "!strad 0" -> 0
+            String[] parts = message.split("\\s+");
+            if (parts.length < 2) {
+                event.getChannel().sendMessage("Usage: `!strad <dte>` (e.g. `!strad 0`)").queue();
+                return;
+            }
+
+            int dte;
+            try {
+                dte = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException e) {
+                event.getChannel().sendMessage("Invalid DTE. Usage: `!strad <dte>` (e.g. `!strad 0`)").queue();
+                return;
+            }
+
+            // Default to SPX
+            String ticker = "SPX";
+
+            // 1. Get current spot price
+            double spotPrice = marketService.getPrice(ticker);
+            if (spotPrice == 0.0) {
+                event.getChannel().sendMessage("❌ Could not fetch spot price for " + ticker).queue();
+                return;
+            }
+
+            // 2. Find ATM strike (round to nearest 5 for SPX)
+            double atmStrike = Math.round(spotPrice / 5.0) * 5.0;
+
+            // 3. Get call and put prices at ATM
+            Optional<MassiveDataService.OptionSnapshot> callData = massiveService.getOptionSnapshot(ticker, atmStrike,
+                    "call", dte);
+            Optional<MassiveDataService.OptionSnapshot> putData = massiveService.getOptionSnapshot(ticker, atmStrike,
+                    "put", dte);
+
+            if (callData.isEmpty() || putData.isEmpty()) {
+                event.getChannel().sendMessage(
+                        "❌ Invalid DTE param was given. Please ensure the DTE implies a valid date (DTE may imply a weekend?)")
+                        .queue();
+                return;
+            }
+
+            // 4. Calculate straddle price (mid of bid/ask for each)
+            double callMid = (callData.get().getBid() + callData.get().getAsk()) / 2;
+            double putMid = (putData.get().getBid() + putData.get().getAsk()) / 2;
+            double straddlePrice = callMid + putMid;
+
+            // 5. Format response like VS-Calculon
+            LocalDate expDate = LocalDate.now().plusDays(dte);
+            String response = String.format(
+                    "**Date:** %s\n**Straddle:** %.2f\n**Strike Used:** %.1f\n**Spot Price:** %.2f",
+                    expDate, straddlePrice, atmStrike, spotPrice);
+
+            event.getChannel().sendMessage(response).queue();
+
+        } catch (Exception e) {
+            event.getChannel().sendMessage("❌ Error: " + e.getMessage()).queue();
         }
     }
 
