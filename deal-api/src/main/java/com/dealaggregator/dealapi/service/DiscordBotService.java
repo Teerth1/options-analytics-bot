@@ -266,15 +266,23 @@ public class DiscordBotService extends ListenerAdapter {
         }
     }
 
-    // Run at 9:29 AM EST (14:29 UTC) and 9:30 AM EST (14:30 UTC) Mon-Fri
-    // Make sure your server is on UTC time (standard for Railway).
-    // EST is UTC-5 (standard) or UTC-4 (DST).
-    // Cron format: sec min hour day month day-of-week
+    // ============================================
+    // SCHEDULED TASKS
+    // ============================================
+
+    /**
+     * Pre-market alert at 9:29 AM EST.
+     * Gives users a 1-minute heads up on the 0DTE pricing before the bell.
+     */
     @Scheduled(cron = "0 29 14 * * MON-FRI", zone = "America/New_York")
     public void alertPreMarket() {
         sendStraddleAlert(0); // 0 DTE
     }
 
+    /**
+     * Market Open alert at 9:30 AM EST.
+     * Captures the straddle price exactly at the opening bell.
+     */
     @Scheduled(cron = "0 30 14 * * MON-FRI", zone = "America/New_York")
     public void alertMarketOpen() {
         sendStraddleAlert(0); // 0 DTE
@@ -291,12 +299,7 @@ public class DiscordBotService extends ListenerAdapter {
 
             if (straddleData.isPresent()) {
                 SchwabApiService.SPXStraddle straddle = straddleData.get();
-                String response = String.format(
-                        "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f",
-                        straddle.getExpirationDate(),
-                        straddle.getStraddlePrice(),
-                        straddle.getStrike(),
-                        straddle.getUnderlyingPrice());
+                String response = formatStraddleResponse(straddle);
                 channel.sendMessage(response).queue();
             } else {
                 channel.sendMessage("❌ Failed to fetch automated straddle.").queue();
@@ -612,23 +615,10 @@ public class DiscordBotService extends ListenerAdapter {
             ArrayList<Leg> legs = generateLegs(strategyType, strikes, expiration);
             Strategy strategy = strategyService.openStrategy(userId, strategyType.name(), ticker, legs, netCost);
 
-            // Build response
-            StringBuilder sb = new StringBuilder();
-            sb.append("✅ **" + strategyType + " Opened:** " + ticker + "\n");
-            for (Leg leg : legs) {
-                String dir = leg.getQuantity() > 0 ? "📈 LONG" : "📉 SHORT";
-                int qty = Math.abs(leg.getQuantity());
-                String qtyStr = qty > 1 ? " x" + qty : "";
-                sb.append(dir + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
-                        leg.getOptionType().toUpperCase() + "\n");
-            }
-            if (netCost != null) {
-                sb.append("💰 Net Cost: $" + String.format("%.2f", netCost) + "\n");
-            }
-            sb.append("📅 Expires: " + expiration + " (" + dte + "DTE)\n");
-            sb.append("📋 Strategy ID: " + strategy.getId());
+            String response = buildSpreadResponse(strategyType, ticker, legs,
+                    netCost != null ? netCost : 0.0, expiration, strategy.getId());
 
-            event.getHook().sendMessage(sb.toString()).queue();
+            event.getHook().sendMessage(response).queue();
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -671,20 +661,10 @@ public class DiscordBotService extends ListenerAdapter {
 
             Strategy strategy = strategyService.openStrategy(userId, "IRON_CONDOR", ticker, legs, netCost);
 
-            // Build response
-            StringBuilder sb = new StringBuilder();
-            sb.append("✅ **IRON CONDOR Opened:** " + ticker + "\n");
-            sb.append("📉 LONG $" + putBuy + " PUT\n");
-            sb.append("📈 SHORT $" + putSell + " PUT\n");
-            sb.append("📈 SHORT $" + callSell + " CALL\n");
-            sb.append("📉 LONG $" + callBuy + " CALL\n");
-            if (netCost != null) {
-                sb.append("💰 Net Credit: $" + String.format("%.2f", netCost) + "\n");
-            }
-            sb.append("📅 Expires: " + expiration + " (" + dte + "DTE)\n");
-            sb.append("📋 Strategy ID: " + strategy.getId());
+            String response = buildSpreadResponse(StrategyType.IRON_CONDOR, ticker, legs,
+                    netCost != null ? netCost : 0.0, expiration, strategy.getId());
 
-            event.getHook().sendMessage(sb.toString()).queue();
+            event.getHook().sendMessage(response).queue();
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -719,7 +699,8 @@ public class DiscordBotService extends ListenerAdapter {
         }
 
         sb.append("💰 Net Cost: $" + String.format("%.2f", netCost) + "\n");
-        sb.append("📅 Expires: " + expiration + "\n");
+        long dte = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), expiration);
+        sb.append("📅 Expires: " + expiration + " (" + dte + "DTE)\n");
         sb.append("📋 Strategy ID: " + strategyId);
 
         return sb.toString();
@@ -1150,20 +1131,22 @@ public class DiscordBotService extends ListenerAdapter {
             String userId = event.getUser().getName();
 
             if (action.equals("OPEN")) {
-                ArrayList<Leg> legs = new ArrayList<>();
-                legs.add(new Leg("call", (double) strike, expiration, cost / 2, 1));
-                legs.add(new Leg("put", (double) strike, expiration, cost / 2, 1));
+                // Use shared generator to build legs
+                ArrayList<Leg> legs = generateStraddle(String.valueOf(strike), expiration);
+
+                // Override cost because straddles usually have a net debit
+                // (The generator defaults to 0.0 price per leg, which is fine for tracking
+                // spread cost)
+                for (Leg leg : legs) {
+                    leg.setEntryPrice(cost / 2.0);
+                }
 
                 Strategy strategy = strategyService.openStrategy(userId, "STRADDLE", ticker, legs, cost);
 
-                event.getHook().sendMessage(
-                        "✅ **STRADDLE OPENED**\n" +
-                                "📈 " + ticker + " $" + strike + " CALL\n" +
-                                "📉 " + ticker + " $" + strike + " PUT\n" +
-                                "📅 Exp: " + expiration + "\n" +
-                                "💰 Net Debit: $" + cost + "\n" +
-                                "🆔 Strategy #" + strategy.getId())
-                        .queue();
+                String response = buildSpreadResponse(StrategyType.STRADDLE, ticker, legs, cost, expiration,
+                        strategy.getId());
+
+                event.getHook().sendMessage(response).queue();
             } else {
                 event.getHook().sendMessage("Use /portfolio and /sell <id> to close positions").queue();
             }
@@ -1191,21 +1174,18 @@ public class DiscordBotService extends ListenerAdapter {
             String userId = event.getUser().getName();
 
             if (action.equals("OPEN")) {
-                ArrayList<Leg> legs = new ArrayList<>();
-                legs.add(new Leg(type, (double) longStrike, expiration, 0.0, 1)); // Buy
-                legs.add(new Leg(type, (double) shortStrike, expiration, 0.0, -1)); // Sell
+                // Use shared generator (handles "3000c" format, so we append the type)
+                String shortStrikeStr = shortStrike + (type.equalsIgnoreCase("call") ? "c" : "p");
+                String longStrikeStr = longStrike + (type.equalsIgnoreCase("call") ? "c" : "p");
+
+                ArrayList<Leg> legs = generateVertical(longStrikeStr, shortStrikeStr, expiration);
 
                 Strategy strategy = strategyService.openStrategy(userId, "VERTICAL", ticker, legs, cost);
 
-                String direction = longStrike < shortStrike ? "BULL" : "BEAR";
-                event.getHook().sendMessage(
-                        "✅ **" + direction + " " + type.toUpperCase() + " SPREAD OPENED**\n" +
-                                "📈 BUY $" + longStrike + " " + type.toUpperCase() + "\n" +
-                                "📉 SELL $" + shortStrike + " " + type.toUpperCase() + "\n" +
-                                "📅 Exp: " + expiration + "\n" +
-                                "💰 Net: $" + cost + "\n" +
-                                "🆔 Strategy #" + strategy.getId())
-                        .queue();
+                String response = buildSpreadResponse(StrategyType.VERTICAL, ticker, legs, cost, expiration,
+                        strategy.getId());
+
+                event.getHook().sendMessage(response).queue();
             } else {
                 event.getHook().sendMessage("Use /portfolio and /sell <id> to close positions").queue();
             }
@@ -1225,7 +1205,6 @@ public class DiscordBotService extends ListenerAdapter {
             String ticker = event.getOption("ticker").getAsString().toUpperCase();
             String type = event.getOption("type").getAsString().toLowerCase();
             int low = event.getOption("low").getAsInt();
-            int mid = event.getOption("mid").getAsInt();
             int high = event.getOption("high").getAsInt();
             int dte = event.getOption("dte").getAsInt();
             double cost = event.getOption("cost") != null ? event.getOption("cost").getAsDouble() : 0.0;
@@ -1234,22 +1213,18 @@ public class DiscordBotService extends ListenerAdapter {
             String userId = event.getUser().getName();
 
             if (action.equals("OPEN")) {
-                ArrayList<Leg> legs = new ArrayList<>();
-                legs.add(new Leg(type, (double) low, expiration, 0.0, 1)); // Buy lower wing
-                legs.add(new Leg(type, (double) mid, expiration, 0.0, -2)); // Sell middle x2
-                legs.add(new Leg(type, (double) high, expiration, 0.0, 1)); // Buy upper wing
+                // Use shared generator (Butterfly calculates mid automatically from low/high)
+                String lowStr = low + (type.equalsIgnoreCase("call") ? "c" : "p");
+                String highStr = high + (type.equalsIgnoreCase("call") ? "c" : "p");
+
+                ArrayList<Leg> legs = generateButterfly(lowStr, highStr, expiration);
 
                 Strategy strategy = strategyService.openStrategy(userId, "FLY", ticker, legs, cost);
 
-                event.getHook().sendMessage(
-                        "✅ **BUTTERFLY OPENED**\n" +
-                                "📈 BUY $" + low + " " + type.toUpperCase() + "\n" +
-                                "📉 SELL 2x $" + mid + " " + type.toUpperCase() + "\n" +
-                                "📈 BUY $" + high + " " + type.toUpperCase() + "\n" +
-                                "📅 Exp: " + expiration + "\n" +
-                                "💰 Net Debit: $" + cost + "\n" +
-                                "🆔 Strategy #" + strategy.getId())
-                        .queue();
+                String response = buildSpreadResponse(StrategyType.FLY, ticker, legs, cost, expiration,
+                        strategy.getId());
+
+                event.getHook().sendMessage(response).queue();
             } else {
                 event.getHook().sendMessage("Use /portfolio and /sell <id> to close positions").queue();
             }
@@ -1311,14 +1286,7 @@ public class DiscordBotService extends ListenerAdapter {
             }
 
             SchwabApiService.SPXStraddle straddle = straddleData.get();
-
-            // Format response like VS-Calculon
-            String response = String.format(
-                    "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f",
-                    straddle.getExpirationDate(),
-                    straddle.getStraddlePrice(),
-                    straddle.getStrike(),
-                    straddle.getUnderlyingPrice());
+            String response = formatStraddleResponse(straddle);
 
             event.getChannel().sendMessage(response).queue();
 
@@ -1327,4 +1295,15 @@ public class DiscordBotService extends ListenerAdapter {
         }
     }
 
+    /**
+     * Format a Straddle object into a Discord message.
+     */
+    private String formatStraddleResponse(SchwabApiService.SPXStraddle straddle) {
+        return String.format(
+                "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f",
+                straddle.getExpirationDate(),
+                straddle.getStraddlePrice(),
+                straddle.getStrike(),
+                straddle.getUnderlyingPrice());
+    }
 }

@@ -51,46 +51,13 @@ public class SchwabApiService {
     }
 
     /**
-     * Data class for option quote
-     */
-    public static class OptionQuote {
-        private final double bid;
-        private final double ask;
-        private final double mid;
-        private final double underlyingPrice;
-        private final double strike;
-
-        public OptionQuote(double bid, double ask, double underlyingPrice, double strike) {
-            this.bid = bid;
-            this.ask = ask;
-            this.mid = (bid + ask) / 2;
-            this.underlyingPrice = underlyingPrice;
-            this.strike = strike;
-        }
-
-        public double getBid() {
-            return bid;
-        }
-
-        public double getAsk() {
-            return ask;
-        }
-
-        public double getMid() {
-            return mid;
-        }
-
-        public double getUnderlyingPrice() {
-            return underlyingPrice;
-        }
-
-        public double getStrike() {
-            return strike;
-        }
-    }
-
-    /**
-     * Refresh the access token using the refresh token
+     * Refresh the access token using the separate refresh token.
+     * This ensures we always have a valid session to talk to Schwab.
+     * 
+     * Logic:
+     * 1. Check if current token is expired.
+     * 2. If yes, POST to Schwab's OAuth endpoint.
+     * 3. Update the local access token.
      */
     private void refreshAccessToken() {
         if (System.currentTimeMillis() < tokenExpiresAt && accessToken != null) {

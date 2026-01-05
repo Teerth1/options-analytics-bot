@@ -13,19 +13,20 @@ public class CommandParserService {
 
     /**
      * Data class representing a parsed option contract.
-     *
-     * Contains all necessary information to identify and price an option:
-     * ticker symbol, strike price, option type, and days to expiration.
+     * Immutable to prevent modification after parsing.
      */
     public static class ParsedOption {
-        /** Stock ticker symbol (e.g., "NVDA", "AAPL") */
-        public String ticker;
-        /** Strike price of the option */
-        public double strike;
-        /** Option type: "call" or "put" */
-        public String type;
-        /** Number of days until expiration */
-        public int days;
+        public final String ticker;
+        public final double strike;
+        public final String type;
+        public final int days;
+
+        public ParsedOption(String ticker, double strike, String type, int days) {
+            this.ticker = ticker;
+            this.strike = strike;
+            this.type = type;
+            this.days = days;
+        }
     }
 
     /**
@@ -41,7 +42,6 @@ public class CommandParserService {
      * @throws IllegalArgumentException if the format is invalid
      */
     public ParsedOption parse(String query) {
-        ParsedOption result = new ParsedOption();
         String[] parts = query.toUpperCase().split(" ");
 
         // Validate minimum required parts
@@ -50,29 +50,32 @@ public class CommandParserService {
         }
 
         // Extract ticker symbol (first part)
-        result.ticker = parts[0];
+        String ticker = parts[0];
 
         // Parse strike price and option type (second part)
         // Format: "150C" (call), "200P" (put), or "300" (defaults to call)
         String strikePart = parts[1];
+        String type;
+        double strike;
+
         if (strikePart.endsWith("C")) {
-            result.type = "call";
-            result.strike = Double.parseDouble(strikePart.substring(0, strikePart.length() - 1));
+            type = "call";
+            strike = Double.parseDouble(strikePart.substring(0, strikePart.length() - 1));
         } else if (strikePart.endsWith("P")) {
-            result.type = "put";
-            result.strike = Double.parseDouble(strikePart.substring(0, strikePart.length() - 1));
+            type = "put";
+            strike = Double.parseDouble(strikePart.substring(0, strikePart.length() - 1));
         } else {
             // No type specified - default to call option
-            result.type = "call";
-            result.strike = Double.parseDouble(strikePart);
+            type = "call";
+            strike = Double.parseDouble(strikePart);
         }
 
         // Parse days to expiration (third part)
         // Format: "30d" or "30" (both accepted)
         String daysPart = parts[2].replace("D", "");
-        result.days = Integer.parseInt(daysPart);
+        int days = Integer.parseInt(daysPart);
 
-        return result;
+        return new ParsedOption(ticker, strike, type, days);
     }
 
 }

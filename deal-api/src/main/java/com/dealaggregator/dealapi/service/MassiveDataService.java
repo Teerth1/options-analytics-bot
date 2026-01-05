@@ -2,10 +2,8 @@ package com.dealaggregator.dealapi.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
-import com.dealaggregator.dealapi.service.YahooOptionsResponse.Contract;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.CookieManager;
 import java.net.CookieStore;
 import java.net.HttpCookie;
@@ -114,8 +112,6 @@ public class MassiveDataService {
             HttpRequest crumbRequest = HttpRequest.newBuilder()
                     .uri(URI.create(CRUMB_URL))
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    // .header("Cookie", this.currentCookie) // HttpClient uses the CookieManager
-                    // automatically
                     .GET()
                     .build();
 
@@ -144,8 +140,6 @@ public class MassiveDataService {
 
         try {
             // 1. Fetch metadata to get expiration dates
-            // We must manually add the Cookie header since RestClient doesn't share the
-            // HttpClient's cookie store
             YahooOptionsResponse metadata = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .path(ticker)
@@ -187,7 +181,8 @@ public class MassiveDataService {
             }
 
             YahooOptionsResponse.OptionData chainData = response.optionChain.result.get(0).options.get(0);
-            List<Contract> contracts = type.equalsIgnoreCase("call") ? chainData.calls : chainData.puts;
+            List<YahooOptionsResponse.Contract> contracts = type.equalsIgnoreCase("call") ? chainData.calls
+                    : chainData.puts;
 
             if (contracts == null || contracts.isEmpty()) {
                 System.out.println("DEBUG: No " + type + " contracts found for this date.");
@@ -195,7 +190,7 @@ public class MassiveDataService {
             }
 
             // 4. Find the matching strike
-            for (Contract contract : contracts) {
+            for (YahooOptionsResponse.Contract contract : contracts) {
                 // Fuzzy match for strike price
                 if (Math.abs(contract.strike - strike) < 0.01) {
                     return Optional.of(new OptionSnapshot(
@@ -242,5 +237,55 @@ public class MassiveDataService {
             }
         }
         return bestTimestamp;
+    }
+
+    // ============================================
+    // YAHOO FINANCE DATA STRUCTURES (Internal)
+    // ============================================
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private static class YahooOptionsResponse {
+        public OptionChain optionChain;
+
+        @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+        public static class OptionChain {
+            public List<Result> result;
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+        public static class Result {
+            public Quote quote;
+            public List<Long> expirationDates;
+            public List<OptionData> options;
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+        public static class Quote {
+            public String language;
+            public String region;
+            public String quoteType;
+            public String currency;
+            public double regularMarketPrice;
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+        public static class OptionData {
+            public long expirationDate;
+            public List<Contract> calls;
+            public List<Contract> puts;
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+        public static class Contract {
+            public double strike;
+            public double lastPrice;
+            public double bid;
+            public double ask;
+            public int volume;
+            public int openInterest;
+            public double impliedVolatility;
+            public boolean inTheMoney;
+            public String contractSymbol;
+        }
     }
 }

@@ -35,18 +35,20 @@ public class StrategyService {
     }
 
     /**
-     * Create and save a new strategy with its legs.
-     */
-    public Strategy openStrategy(String userId, String strategyType, String ticker, List<Leg> legs) {
-        return openStrategy(userId, strategyType, ticker, legs, null);
-    }
-
-    /**
      * Create and save a new strategy with its legs and net cost.
-     * Use this for spreads where net debit/credit matters.
+     * This is the primary method for recording a trade.
+     * 
+     * @param userId       The Discord user ID who made the trade.
+     * @param strategyType e.g., "VERTICAL", "IRON_CONDOR".
+     * @param ticker       The underlying symbol (e.g., SPX).
+     * @param legs         List of option legs included in this trade.
+     * @param netCost      Total debit (positive) or credit (negative/null) for the
+     *                     trade.
+     * @return The saved Strategy entity.
      */
     public Strategy openStrategy(String userId, String strategyType, String ticker, List<Leg> legs, Double netCost) {
         Strategy strategy = new Strategy(userId, strategyType, ticker, netCost);
+        // Link parent strategy to each child leg
         for (Leg leg : legs) {
             leg.setStrategy(strategy);
         }
@@ -55,7 +57,16 @@ public class StrategyService {
     }
 
     /**
-     * Get all open strategies for a user.
+     * Convenience method for opening a strategy without specifying net cost
+     * (defaults to null/0).
+     */
+    public Strategy openStrategy(String userId, String strategyType, String ticker, List<Leg> legs) {
+        return openStrategy(userId, strategyType, ticker, legs, null);
+    }
+
+    /**
+     * Get all active (OPEN) strategies for a user.
+     * Used to display the /portfolio view.
      */
     public List<Strategy> getOpenStrategies(String userId) {
 
