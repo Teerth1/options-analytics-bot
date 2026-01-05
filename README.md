@@ -1,201 +1,114 @@
-# Options Trading Discord Bot
+# 📈 Options Analytics & Trading Bot
 
-[![CI Pipeline](https://github.com/Teerth1/options-analytics-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Teerth1/options-analytics-bot/actions/workflows/ci.yml)
-![Java](https://img.shields.io/badge/Java-17-orange)
-![Python](https://img.shields.io/badge/Python-3.12-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.4-brightgreen)
-![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-FF9900)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)
+**A high-performance Discord bot for real-time options analysis, strategy execution, and mean reversion signals.**
 
-A production-ready Discord bot for options traders featuring **Black-Scholes pricing**, **mean reversion indicators**, portfolio tracking, and real-time P&L analysis.
+Built with **Java Spring Boot**, **AWS Lambda**, **PostgreSQL**, and the **Charles Schwab API**.
 
-**Hybrid Java + Python architecture** with automated CI/CD pipeline deploying to AWS Lambda.
+---
+
+## 🚀 Key Features
+
+- **Real-Time Data**: Integrates with **Charles Schwab Developer API** for execution-grade option chain data (SPX, SPY, etc.).
+- **Quantitative Indicators**:
+  - **Z-Score & Mean Reversion**: Calculates statistical deviations using 1-year lookback.
+  - **Half-Life Estimation**: Uses Ornstein-Uhlenbeck Process (in Python/Lambda) to predict reversion time.
+  - **Autocorrelation (ACF)**: Validates signal strength.
+- **Discord Commands**:
+  - `!strad <dte>`: Get pricing for ATM Straddles (0-3 DTE).
+  - `/indicator <ticker>`: Fetch quant signals analysis.
+  - `/portfolio`: Track open positions and P&L.
+- **Microservices Architecture**:
+  - **Core**: Java Agent (Discord/JDA + Spring Boot).
+  - **Compute**: Python AWS Lambda (NumPy/Pandas) for heavy math.
+  - **Database**: Railway-managed PostgreSQL.
 
 ---
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         ARCHITECTURE                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   Discord User ──► Java Bot (Railway) ──► AWS Lambda (Python)   │
-│                         │                        │               │
-│                         ▼                        ▼               │
-│                    PostgreSQL            yfinance API            │
-│                                                                  │
-│   CI/CD: GitHub Actions ──► Tests ──► Docker Build ──► Deploy   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Tech Stack
-| Layer | Technology |
-|-------|------------|
-| **Bot Framework** | Java 17, Spring Boot 3.2.4, JDA 5.0 |
-| **Analytics API** | Python 3.12, AWS Lambda, API Gateway |
-| **Database** | PostgreSQL 15, JPA/Hibernate |
-| **CI/CD** | GitHub Actions, Docker |
-| **Hosting** | Railway (Java), AWS Lambda (Python) |
-| **Caching** | Caffeine (stock price caching) |
-
----
-
-## 💬 Discord Commands
-
-### Options Analytics
-| Command | Description |
-|---------|-------------|
-| `/indicator <ticker>` | Mean reversion indicators (Z-Score, Half-Life, ACF) |
-| `/analyze` | Portfolio analysis with live P&L |
-| `/optionprice` | Black-Scholes fair value calculator |
-| `/greeks <contract>` | Delta, Gamma, Theta, Vega calculations |
-
-### Portfolio Management
-| Command | Description |
-|---------|-------------|
-| `/buy <contract> <price>` | Add position (e.g., `NVDA 150c 30d 2.50`) |
-| `/portfolio` | View all positions with DCA averaging |
-| `/sell <id>` | Close specific position |
-| `/spread <type>` | Create multi-leg spreads (bull call, iron condor) |
-
-### Market Data
-| Command | Description |
-|---------|-------------|
-| `/stock <ticker>` | Live stock chart and quote |
-| `/view <user>` | View another trader's portfolio |
-
----
-
-## 🐍 Python Indicators API (AWS Lambda)
-
-Serverless Python API providing mean reversion analytics:
-
-```
-GET /all?ticker=SPY
-```
-
-**Response:**
-```json
-{
-  "ticker": "SPY",
-  "zscore": 1.21,
-  "signal": "NEUTRAL",
-  "half_life": 10.89,
-  "acf": -0.14
-}
-```
-
-### Indicators
-| Metric | Description |
-|--------|-------------|
-| **Z-Score** | Standard deviations from Kalman-filtered mean |
-| **Half-Life** | Mean reversion speed in bars (Ornstein-Uhlenbeck) |
-| **ACF Lag-1** | Autocorrelation indicating trend vs mean reversion |
-| **Signal** | OVERBOUGHT / OVERSOLD / NEUTRAL |
-
----
-
-## 🧪 Testing
-
-**14 Unit Tests** covering core business logic:
-
-```bash
-mvn test
-```
-
-| Test Class | Coverage |
-|------------|----------|
-| `BlackScholesServiceTest` | Option pricing (8 tests) |
-| `StrategyServiceTest` | Portfolio operations (6 tests) |
-
----
-
-## 🚀 CI/CD Pipeline
-
-GitHub Actions workflow on every push:
-
-```yaml
-push to master → Run Tests → Build Docker → Deploy Lambda
-```
-
-| Stage | Description |
-|-------|-------------|
-| **Test** | JUnit 5 + Mockito (14 tests) |
-| **Build** | Multi-stage Docker image |
-| **Deploy** | Lambda package via AWS CLI |
-
----
-
-## 🐳 Docker
-
-Multi-stage Dockerfile for optimized images:
-
-```bash
-docker build -t options-bot .
-docker run -e DISCORD_BOT_TOKEN=xxx -p 8080:8080 options-bot
+```mermaid
+graph TD
+    User((User)) -->|Commands| Discord[Discord Bot]
+    Discord -->|Events| Java[Spring Boot Service]
+    
+    subgraph "Backend Services (Railway)"
+        Java -->|Option Chains| Schwab[Schwab API]
+        Java -->|Market Data| Polygon[Polygon.io]
+        Java -->|Store/Retrieve| DB[(PostgreSQL)]
+    end
+    
+    subgraph "Quantitative Engine (AWS)"
+        Java -->|HTTP Request| APIGateway[API Gateway]
+        APIGateway --> Lambda[Python Lambda]
+        Lambda -->|Math/Stats| YF[Yahoo Finance Data]
+    end
 ```
 
 ---
 
-## 📁 Project Structure
+## 🛠️ Technology Stack
 
-```
-├── deal-api/src/main/java/           # Java Spring Boot
-│   └── com/dealaggregator/dealapi/
-│       ├── service/
-│       │   ├── DiscordBotService     # Discord command handlers
-│       │   ├── BlackScholesService   # Option pricing
-│       │   ├── IndicatorService      # Calls Python Lambda
-│       │   └── StrategyService       # Portfolio CRUD
-│       └── entity/                   # JPA entities
-│
-├── deal-api/python/mean_reversion/   # Python Lambda
-│   ├── lambda_handler.py             # AWS Lambda entry point
-│   ├── indicators.py                 # Z-Score, Half-Life, ACF
-│   └── data_fetcher.py               # yfinance integration
-│
-├── .github/workflows/ci.yml          # CI/CD pipeline
-├── Dockerfile                        # Multi-stage build
-└── pom.xml                           # Maven dependencies
-```
+- **Language**: Java 17 (Spring Boot 3), Python 3.11
+- **Cloud**: AWS Lambda, Railway (PaaS)
+- **Database**: PostgreSQL (Hibernate/JPA)
+- **APIs**:
+  - **Charles Schwab**: OAuth2-protected real-time options.
+  - **Discord (JDA)**: User interface.
+  - **Polygon.io**: Stock data backup.
 
 ---
 
-## 🔧 Quick Start
+## 🔧 Setup & Configuration
 
 ### Prerequisites
-- Java 17+, Maven 3.6+
-- PostgreSQL 15
-- Discord Bot Token
+- Java 17+
+- Maven
+- Schwab Developer Account (App Key & Secret)
 
-### Setup
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DISCORD_TOKEN` | Discord Bot Token |
+| `SCHWAB_CLIENT_ID` | Schwab App Key |
+| `SCHWAB_CLIENT_SECRET` | Schwab App Secret |
+| `SCHWAB_REFRESH_TOKEN` | OAuth2 Refresh Token (7-day validity) |
+| `DATABASE_URL` | PostgreSQL Connection String |
+| `LAMBDA_API_KEY` | Secure key for AWS Lambda comms |
+
+### Running Locally
 ```bash
-git clone https://github.com/Teerth1/options-analytics-bot.git
-cd options-analytics-bot/deal-api
+# Clone the repo
+git clone https://github.com/your-repo/deal-api.git
 
-cp .env.example .env
-# Edit .env with your tokens
+# Build with Maven
+mvn clean install
 
-mvn spring-boot:run
+# Run
+java -jar target/deal-api-0.0.1-SNAPSHOT.jar
 ```
 
 ---
 
-## 📈 Roadmap
+## 🔌 API Integration Details
 
-- [ ] API Key authentication for Lambda
-- [ ] Trade alerts (Discord DM on Z-score threshold)
-- [ ] Web dashboard (React/Next.js)
-- [ ] Backtesting historical performance
+The bot handles the complex **Schwab OAuth2 Flow**:
+1. Uses a manually obtained `Refresh Token`.
+2. Automatically fetches a new `Access Token` every 30 minutes.
+3. Requests Option Chains via `/marketdata/v1/chains`.
 
----
-
-## 📝 License
-
-MIT License
+*(See `SchwabApiService.java` for implementation details)*
 
 ---
 
-**Built with Java, Python, AWS, and ❤️**
+## 🛡️ Security
+
+- No API keys are committed to Git.
+- Secrets are managed via **Railway Variables** and **GitHub Secrets**.
+- Lambda endpoints are protected by `X-API-Key` headers.
+
+---
+
+## 📄 License
+
+MIT License. Not financial advice. Use at your own risk.
