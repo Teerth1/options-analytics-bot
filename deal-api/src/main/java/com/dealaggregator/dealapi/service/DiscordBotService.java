@@ -280,6 +280,12 @@ public class DiscordBotService extends ListenerAdapter {
         sendStraddleAlert(0); // 0 DTE
     }
 
+    // TEMPORARY TEST: Run at 1:45 PM EST
+    @Scheduled(cron = "0 45 13 * * *", zone = "America/New_York")
+    public void testAlert() {
+        sendStraddleAlert(0);
+    }
+
     private void sendStraddleAlert(int dte) {
         String channelId = "1273013006669844607";
         TextChannel channel = jda.getTextChannelById(channelId);
