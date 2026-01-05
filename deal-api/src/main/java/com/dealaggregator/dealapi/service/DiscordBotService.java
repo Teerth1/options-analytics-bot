@@ -14,6 +14,8 @@ import com.dealaggregator.dealapi.repository.CommandLogRepository;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 
 import jakarta.annotation.PostConstruct;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -67,6 +69,8 @@ public class DiscordBotService extends ListenerAdapter {
     private final IndicatorService indicatorService;
     private final SchwabApiService schwabService;
 
+    private JDA jda; // Add class field
+
     /**
      * Constructor for DiscordBotService with dependency injection.
      */
@@ -100,7 +104,7 @@ public class DiscordBotService extends ListenerAdapter {
     @PostConstruct
     public void startBot() throws InterruptedException {
         // Build and configure the JDA instance
-        JDA jda = JDABuilder.createDefault(botToken)
+        this.jda = JDABuilder.createDefault(botToken) // Assign to class field
                 .enableIntents(GatewayIntent.MESSAGE_CONTENT) // Enable reading message text for !commands
                 .addEventListeners(this)
                 .setActivity(Activity.watching("Market Trends"))
@@ -259,6 +263,44 @@ public class DiscordBotService extends ListenerAdapter {
             verticalSlash(event);
         } else if (event.getName().equals("fly")) {
             flySlash(event);
+        }
+    }
+
+    // Run at 9:29 AM EST (14:29 UTC) and 9:30 AM EST (14:30 UTC) Mon-Fri
+    // Make sure your server is on UTC time (standard for Railway).
+    // EST is UTC-5 (standard) or UTC-4 (DST).
+    // Cron format: sec min hour day month day-of-week
+    @Scheduled(cron = "0 29 14 * * MON-FRI", zone = "America/New_York")
+    public void alertPreMarket() {
+        sendStraddleAlert(0); // 0 DTE
+    }
+
+    @Scheduled(cron = "0 30 14 * * MON-FRI", zone = "America/New_York")
+    public void alertMarketOpen() {
+        sendStraddleAlert(0); // 0 DTE
+    }
+
+    private void sendStraddleAlert(int dte) {
+        String channelId = "1273013006669844607";
+        TextChannel channel = jda.getTextChannelById(channelId);
+
+        if (channel != null) {
+            channel.sendMessage("⏰ **Automated Market Alert** for " + dte + " DTE:").queue();
+
+            Optional<SchwabApiService.SPXStraddle> straddleData = schwabService.getSpxStraddle(dte);
+
+            if (straddleData.isPresent()) {
+                SchwabApiService.SPXStraddle straddle = straddleData.get();
+                String response = String.format(
+                        "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f",
+                        straddle.getExpirationDate(),
+                        straddle.getStraddlePrice(),
+                        straddle.getStrike(),
+                        straddle.getUnderlyingPrice());
+                channel.sendMessage(response).queue();
+            } else {
+                channel.sendMessage("❌ Failed to fetch automated straddle.").queue();
+            }
         }
     }
 
