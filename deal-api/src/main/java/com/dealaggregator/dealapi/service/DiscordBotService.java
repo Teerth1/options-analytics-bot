@@ -1245,19 +1245,17 @@ public class DiscordBotService extends ListenerAdapter {
      */
     private void handleStradCommand(MessageReceivedEvent event, String message) {
         try {
-            // Parse DTE from message: "!strad 0" -> 0
+            // Parse DTE from message: "!strad 0" -> 0, "!strad" -> 0 (default)
             String[] parts = message.split("\\s+");
-            if (parts.length < 2) {
-                event.getChannel().sendMessage("Usage: `!strad <dte>` (e.g. `!strad 0`)").queue();
-                return;
-            }
+            int dte = 0; // Default to 0 DTE
 
-            int dte;
-            try {
-                dte = Integer.parseInt(parts[1]);
-            } catch (NumberFormatException e) {
-                event.getChannel().sendMessage("Invalid DTE. Usage: `!strad <dte>` (e.g. `!strad 0`)").queue();
-                return;
+            if (parts.length >= 2) {
+                try {
+                    dte = Integer.parseInt(parts[1]);
+                } catch (NumberFormatException e) {
+                    event.getChannel().sendMessage("Invalid DTE. Usage: `!strad <dte>` (e.g. `!strad 0`)").queue();
+                    return;
+                }
             }
 
             // Fetch SPX straddle from Schwab API
