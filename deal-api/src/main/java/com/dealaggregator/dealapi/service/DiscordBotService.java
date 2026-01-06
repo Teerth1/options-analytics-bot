@@ -155,7 +155,7 @@ public class DiscordBotService extends ListenerAdapter {
 
                 // 9. View Another User's Portfolio
                 Commands.slash("view", "View another user's portfolio")
-                        .addOption(OptionType.STRING, "username", "Discord username", true),
+                        .addOption(OptionType.USER, "user", "Select a user", true),
 
                 // 10. Liquidity Check
                 Commands.slash("liquidity", "Check liquidity for a specific contract")
@@ -1082,7 +1082,8 @@ public class DiscordBotService extends ListenerAdapter {
     }
 
     private void viewSlash(SlashCommandInteractionEvent event) {
-        String username = event.getOption("username").getAsString();
+        // Change "username" to "user" (matching the updated command)
+        String username = event.getOption("user").getAsUser().getName();
 
         event.deferReply().queue();
 
