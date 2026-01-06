@@ -274,7 +274,7 @@ public class DiscordBotService extends ListenerAdapter {
      * Pre-market alert at 9:29 AM EST.
      * Gives users a 1-minute heads up on the 0DTE pricing before the bell.
      */
-    @Scheduled(cron = "0 29 14 * * MON-FRI", zone = "America/New_York")
+    @Scheduled(cron = "0 29 9 * * MON-FRI", zone = "America/New_York")
     public void alertPreMarket() {
         sendStraddleAlert(0); // 0 DTE
     }
@@ -283,7 +283,7 @@ public class DiscordBotService extends ListenerAdapter {
      * Market Open alert at 9:30 AM EST.
      * Captures the straddle price exactly at the opening bell.
      */
-    @Scheduled(cron = "0 30 14 * * MON-FRI", zone = "America/New_York")
+    @Scheduled(cron = "0 30 9 * * MON-FRI", zone = "America/New_York")
     public void alertMarketOpen() {
         sendStraddleAlert(0); // 0 DTE
     }
