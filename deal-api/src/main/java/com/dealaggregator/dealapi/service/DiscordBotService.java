@@ -1097,12 +1097,36 @@ public class DiscordBotService extends ListenerAdapter {
             } else {
                 StringBuilder sb = new StringBuilder();
                 for (Strategy s : strategies) {
+                    // Strategy header
                     sb.append("**#" + s.getId() + " " + s.getTicker() + "** (" + s.getStrategy() + ")\n");
+
+                    boolean isMultiLeg = s.getLegs().size() > 1;
+
+                    // List each leg
                     for (Leg leg : s.getLegs()) {
                         String legDir = leg.getQuantity() > 0 ? "📈" : "📉";
-                        sb.append(legDir + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
-                                " @ $" + leg.getEntryPrice() + "\n");
+                        int qty = Math.abs(leg.getQuantity());
+                        String qtyStr = qty > 1 ? " x" + qty : "";
+
+                        if (isMultiLeg) {
+                            // For spreads: don't show per-leg price (it's 0)
+                            // Use intValue() for strike to remove decimals for index options if cleaner, or
+                            // keep as is.
+                            // The original portfolioSlash used intValue() for spreads.
+                            sb.append(legDir + qtyStr + " $" + leg.getStrikePrice().intValue() + " " +
+                                    leg.getOptionType().toUpperCase() + " (Exp: " + leg.getExpiration() + ")\n");
+                        } else {
+                            // For single legs: show the price
+                            sb.append(legDir + " $" + leg.getStrikePrice() + " " + leg.getOptionType().toUpperCase() +
+                                    " @ $" + leg.getEntryPrice() + " (Exp: " + leg.getExpiration() + ")\n");
+                        }
                     }
+
+                    // Show net cost for multi-leg strategies
+                    if (isMultiLeg && s.getNetCost() != null) {
+                        sb.append("💰 Net Debit: $" + String.format("%.2f", s.getNetCost()) + "\n");
+                    }
+
                     sb.append("\n");
                 }
                 eb.setDescription(sb.toString());
