@@ -1,5 +1,5 @@
 # Secrets
-application.properties
+# application.properties (removed from ignore so Railway sees the placeholders)
 *.env
 
 # Build results

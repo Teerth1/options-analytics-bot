@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -15,6 +14,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Optional;
+import java.io.InputStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -59,9 +59,9 @@ public class SchwabApiService {
      * 2. If yes, POST to Schwab's OAuth endpoint.
      * 3. Update the local access token.
      */
-    private void refreshAccessToken() {
+    private synchronized String refreshAccessToken() {
         if (System.currentTimeMillis() < tokenExpiresAt && accessToken != null) {
-            return; // Token still valid
+            return accessToken; // Token still valid
         }
 
         try {
@@ -73,7 +73,7 @@ public class SchwabApiService {
             if (safeClientId.isEmpty() || safeClientSecret.isEmpty() || safeRefreshToken.isEmpty()) {
                 logger.error(
                         "Schwab credentials missing. Ensure SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET, and SCHWAB_REFRESH_TOKEN are set.");
-                return;
+                return null;
             }
 
             String auth = Base64.getEncoder().encodeToString(
@@ -89,23 +89,40 @@ public class SchwabApiService {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<java.io.InputStream> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
 
             if (response.statusCode() == 200) {
-                JsonNode json = objectMapper.readTree(response.body());
+                String responseBody = getResponseBody(response);
+                JsonNode json = objectMapper.readTree(responseBody);
                 accessToken = json.get("access_token").asText();
                 int expiresIn = json.get("expires_in").asInt();
                 tokenExpiresAt = System.currentTimeMillis() + (expiresIn - 60) * 1000L; // Refresh 1 min early
                 logger.info("Schwab access token refreshed successfully");
+                return accessToken;
             } else {
+                String errorBody = getResponseBody(response);
                 logger.error("Failed to refresh Schwab token. Status: {}. Response: {}", response.statusCode(),
-                        response.body());
+                        errorBody);
                 // Force reset access token
                 accessToken = null;
+                return null;
             }
         } catch (Exception e) {
             logger.error("Error refreshing Schwab token", e);
             accessToken = null;
+            return null;
+        }
+    }
+
+    private String getResponseBody(HttpResponse<InputStream> response) throws java.io.IOException {
+        String encoding = response.headers().firstValue("Content-Encoding").orElse("");
+        if (encoding.equalsIgnoreCase("gzip")) {
+            try (java.util.zip.GZIPInputStream gzip = new java.util.zip.GZIPInputStream(response.body())) {
+                return new String(gzip.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        } else {
+            return new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 
@@ -116,9 +133,9 @@ public class SchwabApiService {
      * @return Optional containing call and put quotes, or empty if failed
      */
     public Optional<SPXStraddle> getSpxStraddle(int dte) {
-        refreshAccessToken();
+        String token = refreshAccessToken();
 
-        if (accessToken == null) {
+        if (token == null) {
             logger.error("No valid Schwab access token available after refresh attempt");
             return Optional.empty();
         }
@@ -137,7 +154,7 @@ public class SchwabApiService {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .header("Authorization", "Bearer " + accessToken)
+                    .header("Authorization", "Bearer " + token)
                     .header("Accept", "application/json")
                     .GET()
                     .build();
