@@ -27,7 +27,10 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
 # Copy only the built JAR from stage 1
+# Copy only the built JAR from stage 1
 COPY --from=builder /app/target/*.jar app.jar
+# Copy the tokens file if it exists
+COPY schwab_tokens.json /app/schwab_tokens.json
 
 # Expose port 8080
 EXPOSE 8080
