@@ -55,4 +55,60 @@ public class Leg {
         this.entryPrice = entryPrice;
         this.quantity = quantity;
     }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Strategy getStrategy() {
+        return strategy;
+    }
+
+    public void setStrategy(Strategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public String getOptionType() {
+        return optionType;
+    }
+
+    public void setOptionType(String optionType) {
+        this.optionType = optionType;
+    }
+
+    public Double getStrikePrice() {
+        return strikePrice;
+    }
+
+    public void setStrikePrice(Double strikePrice) {
+        this.strikePrice = strikePrice;
+    }
+
+    public LocalDate getExpiration() {
+        return expiration;
+    }
+
+    public void setExpiration(LocalDate expiration) {
+        this.expiration = expiration;
+    }
+
+    public Double getEntryPrice() {
+        return entryPrice;
+    }
+
+    public void setEntryPrice(Double entryPrice) {
+        this.entryPrice = entryPrice;
+    }
+
+    public Integer getQuantity() {
+        return quantity;
+    }
+
+    public void setQuantity(Integer quantity) {
+        this.quantity = quantity;
+    }
 }
