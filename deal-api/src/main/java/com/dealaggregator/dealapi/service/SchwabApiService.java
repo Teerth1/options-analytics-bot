@@ -15,6 +15,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Optional;
 import java.io.InputStream;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.dealaggregator.dealapi.model.SchwabToken;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,8 +31,11 @@ public class SchwabApiService {
     private static final Logger logger = LoggerFactory.getLogger(SchwabApiService.class);
     private static final String BASE_URL = "https://api.schwabapi.com/marketdata/v1";
     private static final String TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token";
+    private static final String TOKEN_ID = "default";
+    private static final String TOKENS_FILE = "schwab_tokens.json";
 
-    @Value("${schwab.client.id:}")
+    @Autowired
+    private com.dealaggregator.dealapi.repository.SchwabTokenRepository tokenRepository;
     private String clientId;
 
     @Value("${schwab.client.secret:}")
@@ -59,7 +64,25 @@ public class SchwabApiService {
      * 2. If yes, POST to Schwab's OAuth endpoint.
      * 3. Update the local access token.
      */
+    private static final String TOKENS_FILE = "schwab_tokens.json";
+
+    /**
+     * Refresh the access token using the separate refresh token.
+     * This ensures we always have a valid session to talk to Schwab.
+     * 
+     * Logic:
+     * 1. Try to load persisted tokens from disk first (bootstrap/recovery).
+     * 2. Check if current token is expired.
+     * 3. If yes, POST to Schwab's OAuth endpoint.
+     * 4. Update the local access token AND refresh token (rotation).
+     * 5. Persist new tokens to disk for future restarts.
+     */
     private synchronized String refreshAccessToken() {
+        // Try loading from file first if we haven't yet, or if we are about to fail
+        if (accessToken == null) {
+            loadPersistedTokens();
+        }
+
         if (System.currentTimeMillis() < tokenExpiresAt && accessToken != null) {
             return accessToken; // Token still valid
         }
@@ -95,9 +118,21 @@ public class SchwabApiService {
             if (response.statusCode() == 200) {
                 String responseBody = getResponseBody(response);
                 JsonNode json = objectMapper.readTree(responseBody);
+
                 accessToken = json.get("access_token").asText();
                 int expiresIn = json.get("expires_in").asInt();
                 tokenExpiresAt = System.currentTimeMillis() + (expiresIn - 60) * 1000L; // Refresh 1 min early
+
+                // CRITICAL: Capture the new refresh token if provided (Rotation)
+                if (json.has("refresh_token")) {
+                    String newRefreshToken = json.get("refresh_token").asText();
+                    if (!newRefreshToken.isEmpty() && !newRefreshToken.equals(refreshToken)) {
+                        logger.info("Received new refresh token from Schwab. Rotating...");
+                        this.refreshToken = newRefreshToken;
+                        persistTokens();
+                    }
+                }
+
                 logger.info("Schwab access token refreshed successfully");
                 return accessToken;
             } else {
@@ -112,6 +147,52 @@ public class SchwabApiService {
             logger.error("Error refreshing Schwab token", e);
             accessToken = null;
             return null;
+        }
+    }
+
+    private void loadPersistedTokens() {
+        try {
+            // 1. Try checking the database first
+            java.util.Optional<SchwabToken> dbToken = tokenRepository.findById(TOKEN_ID);
+            if (dbToken.isPresent()) {
+                SchwabToken token = dbToken.get();
+                if (token.getRefreshToken() != null && !token.getRefreshToken().isEmpty()) {
+                    this.refreshToken = token.getRefreshToken();
+                    this.accessToken = token.getAccessToken();
+                    logger.info("Loaded persisted Schwab tokens from Database");
+                    return;
+                }
+            }
+
+            // 2. If not in DB, try the local file (Bootstrap step)
+            java.io.File file = new java.io.File(TOKENS_FILE);
+            if (file.exists()) {
+                JsonNode root = objectMapper.readTree(file);
+                if (root.has("refresh_token")) {
+                    String savedRefreshToken = root.get("refresh_token").asText();
+                    if (savedRefreshToken != null && !savedRefreshToken.isEmpty()) {
+                        this.refreshToken = savedRefreshToken;
+                        logger.info("Loaded persisted Schwab refresh token from local file (" + TOKENS_FILE + ")");
+
+                        // MIGRATION: Save to DB immediately so we don't need the file anymore
+                        persistTokens();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to load persisted tokens: {}", e.getMessage());
+        }
+    }
+
+    private void persistTokens() {
+        try {
+            // Save to Database
+            SchwabToken token = new SchwabToken(TOKEN_ID, this.refreshToken, this.accessToken,
+                    System.currentTimeMillis());
+            tokenRepository.save(token);
+            logger.info("Persisted Schwab tokens to Database");
+        } catch (Exception e) {
+            logger.error("Failed to persist Schwab tokens to Database", e);
         }
     }
 
