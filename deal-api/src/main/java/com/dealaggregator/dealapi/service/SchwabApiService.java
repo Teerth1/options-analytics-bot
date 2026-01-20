@@ -36,6 +36,7 @@ public class SchwabApiService {
 
     @Autowired
     private com.dealaggregator.dealapi.repository.SchwabTokenRepository tokenRepository;
+    @Value("${schwab.client.id}")
     private String clientId;
 
     @Value("${schwab.client.secret:}")
@@ -64,7 +65,7 @@ public class SchwabApiService {
      * 2. If yes, POST to Schwab's OAuth endpoint.
      * 3. Update the local access token.
      */
-    private static final String TOKENS_FILE = "schwab_tokens.json";
+    // Duplicate private static final String TOKENS_FILE removed here
 
     /**
      * Refresh the access token using the separate refresh token.
