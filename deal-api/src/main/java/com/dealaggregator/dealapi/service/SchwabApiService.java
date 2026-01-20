@@ -54,6 +54,7 @@ public class SchwabApiService {
     public SchwabApiService() {
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
+        logger.info("SchwabApiService initialized. Attempting to bootstrap tokens...");
     }
 
     /**
