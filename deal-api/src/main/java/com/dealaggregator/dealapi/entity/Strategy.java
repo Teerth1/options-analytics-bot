@@ -67,4 +67,36 @@ public class Strategy {
         this.ticker = ticker;
         this.netCost = netCost;
     }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public String getStrategy() {
+        return strategy;
+    }
+
+    public String getTicker() {
+        return ticker;
+    }
+
+    public StrategyStatus getStatus() {
+        return status;
+    }
+
+    public Double getNetCost() {
+        return netCost;
+    }
+
+    public List<Leg> getLegs() {
+        return legs;
+    }
+
+    public void setStatus(StrategyStatus status) {
+        this.status = status;
+    }
 }

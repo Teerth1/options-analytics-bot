@@ -62,6 +62,26 @@ public class MassiveDataService {
             this.openInterest = openInterest;
             this.strike = strike;
         }
+
+        public double getBid() {
+            return bid;
+        }
+
+        public double getAsk() {
+            return ask;
+        }
+
+        public int getVolume() {
+            return volume;
+        }
+
+        public int getOpenInterest() {
+            return openInterest;
+        }
+
+        public double getStrike() {
+            return strike;
+        }
     }
 
     /**
