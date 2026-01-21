@@ -154,14 +154,19 @@ public class SchwabApiService {
 
     private void loadPersistedTokens() {
         try {
-            logger.info("FORCE UPDATE: Deleting old token from DB and loading from file...");
-            // Force clean state
-            if (tokenRepository.existsById(TOKEN_ID)) {
-                tokenRepository.deleteById(TOKEN_ID);
-                logger.info("Deleted old invalid token from Database.");
+            // 1. Try checking the database first
+            java.util.Optional<SchwabToken> dbToken = tokenRepository.findById(TOKEN_ID);
+            if (dbToken.isPresent()) {
+                SchwabToken token = dbToken.get();
+                if (token.getRefreshToken() != null && !token.getRefreshToken().isEmpty()) {
+                    this.refreshToken = token.getRefreshToken();
+                    this.accessToken = token.getAccessToken();
+                    logger.info("Loaded persisted Schwab tokens from Database");
+                    return;
+                }
             }
 
-            // Always load from file for this deployment
+            // 2. If not in DB, try the local file (Bootstrap step)
             java.io.File file = new java.io.File(TOKENS_FILE);
             if (file.exists()) {
                 JsonNode root = objectMapper.readTree(file);
@@ -169,16 +174,12 @@ public class SchwabApiService {
                     String savedRefreshToken = root.get("refresh_token").asText();
                     if (savedRefreshToken != null && !savedRefreshToken.isEmpty()) {
                         this.refreshToken = savedRefreshToken;
-                        this.accessToken = root.has("access_token") ? root.get("access_token").asText() : null;
+                        logger.info("Loaded persisted Schwab refresh token from local file (" + TOKENS_FILE + ")");
 
-                        logger.info("Loaded FRESH token from " + TOKENS_FILE);
-
-                        // Save immediately to DB
+                        // MIGRATION: Save to DB immediately so we don't need the file anymore
                         persistTokens();
                     }
                 }
-            } else {
-                logger.error("schwab_tokens.json NOT FOUND! Cannot fix token state.");
             }
         } catch (Exception e) {
             logger.warn("Failed to load persisted tokens: {}", e.getMessage());
