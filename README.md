@@ -6,6 +6,14 @@ Built with **Java Spring Boot**, **AWS Lambda**, **PostgreSQL**, and the **Charl
 
 ---
 
+## 🎬 Demo
+
+![Bot Demo](./recording/Animation.gif)
+
+*Real-time SPX straddle pricing, quantitative indicators, and portfolio management via Discord*
+
+---
+
 ## 🚀 Key Features
 
 - **Real-Time Data**: Integrates with **Charles Schwab Developer API** for execution-grade option chain data (SPX, SPY, etc.).
