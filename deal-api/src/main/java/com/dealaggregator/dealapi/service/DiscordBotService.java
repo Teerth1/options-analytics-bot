@@ -283,7 +283,7 @@ public class DiscordBotService extends ListenerAdapter {
      * Market Open alert at 9:30 AM EST.
      * Captures the straddle price exactly at the opening bell.
      */
-    @Scheduled(cron = "0 30 9 * * MON-FRI", zone = "America/New_York")
+    @Scheduled(cron = "0 32 9 * * MON-FRI", zone = "America/New_York")
     public void alertMarketOpen() {
         sendStraddleAlert(0); // 0 DTE
     }
