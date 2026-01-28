@@ -168,32 +168,50 @@ public class SchwabApiService {
 
     private void loadPersistedTokens() {
         try {
-            // 1. Try checking the database first
+            Long dbUpdatedAt = 0L;
+            String dbRefreshToken = null;
+            String dbAccessToken = null;
+
+            // 1. Check database
             java.util.Optional<SchwabToken> dbToken = tokenRepository.findById(TOKEN_ID);
             if (dbToken.isPresent()) {
                 SchwabToken token = dbToken.get();
-                if (token.getRefreshToken() != null && !token.getRefreshToken().isEmpty()) {
-                    this.refreshToken = token.getRefreshToken();
-                    this.accessToken = token.getAccessToken();
-                    logger.info("Loaded persisted Schwab tokens from Database");
-                    return;
-                }
+                dbUpdatedAt = token.getUpdatedAt() != null ? token.getUpdatedAt() : 0L;
+                dbRefreshToken = token.getRefreshToken();
+                dbAccessToken = token.getAccessToken();
             }
 
-            // 2. If not in DB, try the local file (Bootstrap step)
+            // 2. Check local file
+            Long fileUpdatedAt = 0L;
+            String fileRefreshToken = null;
+            String fileAccessToken = null;
             java.io.File file = new java.io.File(TOKENS_FILE);
             if (file.exists()) {
                 JsonNode root = objectMapper.readTree(file);
                 if (root.has("refresh_token")) {
-                    String savedRefreshToken = root.get("refresh_token").asText();
-                    if (savedRefreshToken != null && !savedRefreshToken.isEmpty()) {
-                        this.refreshToken = savedRefreshToken;
-                        logger.info("Loaded persisted Schwab refresh token from local file (" + TOKENS_FILE + ")");
-
-                        // MIGRATION: Save to DB immediately so we don't need the file anymore
-                        persistTokens();
-                    }
+                    fileRefreshToken = root.get("refresh_token").asText();
+                    fileAccessToken = root.has("access_token") ? root.get("access_token").asText() : null;
+                    fileUpdatedAt = root.has("updated_at") ? root.get("updated_at").asLong() * 1000
+                            : file.lastModified();
                 }
+            }
+
+            // 3. Use whichever is NEWER
+            if (fileUpdatedAt > dbUpdatedAt && fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
+                this.refreshToken = fileRefreshToken;
+                this.accessToken = fileAccessToken;
+                logger.info("Loaded NEWER Schwab tokens from local file (file={}, db={})", fileUpdatedAt, dbUpdatedAt);
+                // Migrate to DB
+                persistTokens();
+            } else if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
+                this.refreshToken = dbRefreshToken;
+                this.accessToken = dbAccessToken;
+                logger.info("Loaded Schwab tokens from Database");
+            } else if (fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
+                this.refreshToken = fileRefreshToken;
+                this.accessToken = fileAccessToken;
+                logger.info("Loaded Schwab tokens from local file (bootstrap)");
+                persistTokens();
             }
         } catch (Exception e) {
             logger.warn("Failed to load persisted tokens: {}", e.getMessage());
