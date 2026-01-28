@@ -181,18 +181,38 @@ public class SchwabApiService {
                 dbAccessToken = token.getAccessToken();
             }
 
-            // 2. Check local file
+            // 2. Check local file OR classpath resource
             Long fileUpdatedAt = 0L;
             String fileRefreshToken = null;
             String fileAccessToken = null;
+
+            // Try filesystem first
             java.io.File file = new java.io.File(TOKENS_FILE);
+            java.io.InputStream tokenStream = null;
+
             if (file.exists()) {
-                JsonNode root = objectMapper.readTree(file);
-                if (root.has("refresh_token")) {
-                    fileRefreshToken = root.get("refresh_token").asText();
-                    fileAccessToken = root.has("access_token") ? root.get("access_token").asText() : null;
-                    fileUpdatedAt = root.has("updated_at") ? root.get("updated_at").asLong() * 1000
-                            : file.lastModified();
+                tokenStream = new java.io.FileInputStream(file);
+                fileUpdatedAt = file.lastModified();
+            } else {
+                // Try classpath (for Railway/JAR deployment)
+                tokenStream = getClass().getClassLoader().getResourceAsStream(TOKENS_FILE);
+                if (tokenStream != null) {
+                    fileUpdatedAt = System.currentTimeMillis(); // Assume fresh if from classpath
+                }
+            }
+
+            if (tokenStream != null) {
+                try {
+                    JsonNode root = objectMapper.readTree(tokenStream);
+                    if (root.has("refresh_token")) {
+                        fileRefreshToken = root.get("refresh_token").asText();
+                        fileAccessToken = root.has("access_token") ? root.get("access_token").asText() : null;
+                        if (root.has("updated_at")) {
+                            fileUpdatedAt = root.get("updated_at").asLong() * 1000;
+                        }
+                    }
+                } finally {
+                    tokenStream.close();
                 }
             }
 
