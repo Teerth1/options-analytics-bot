@@ -12,6 +12,8 @@ import com.dealaggregator.dealapi.entity.Leg;
 import com.dealaggregator.dealapi.entity.CommandLog;
 import com.dealaggregator.dealapi.repository.CommandLogRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,6 +45,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
  */
 @Service
 public class DiscordBotService extends ListenerAdapter {
+    private static final Logger logger = LoggerFactory.getLogger(DiscordBotService.class);
     /**
      * Discord bot token loaded from application.properties.
      * Required for authenticating the bot with Discord's API.
@@ -280,12 +283,28 @@ public class DiscordBotService extends ListenerAdapter {
     }
 
     /**
-     * Market Open alert at 9:30 AM EST.
+     * Market Open alert at 9:32 AM EST.
      * Captures the straddle price exactly at the opening bell.
      */
     @Scheduled(cron = "0 32 9 * * MON-FRI", zone = "America/New_York")
     public void alertMarketOpen() {
         sendStraddleAlert(0); // 0 DTE
+    }
+
+    /**
+     * Daily token keepalive - runs at 6 AM every day INCLUDING weekends.
+     * Prevents Schwab refresh token from expiring after 7 days of inactivity.
+     * This is critical because the scheduled market alerts only run MON-FRI.
+     */
+    @Scheduled(cron = "0 0 6 * * *", zone = "America/New_York")
+    public void tokenKeepalive() {
+        logger.info("Running daily token keepalive...");
+        boolean success = schwabService.forceTokenRefresh();
+        if (success) {
+            logger.info("Token keepalive succeeded - token refreshed and persisted.");
+        } else {
+            logger.error("Token keepalive FAILED - manual intervention may be required!");
+        }
     }
 
     private void sendStraddleAlert(int dte) {

@@ -58,6 +58,20 @@ public class SchwabApiService {
     }
 
     /**
+     * Force a token refresh regardless of expiry status.
+     * Used by scheduled keepalive jobs to prevent token expiration.
+     * 
+     * @return true if refresh succeeded, false otherwise
+     */
+    public boolean forceTokenRefresh() {
+        logger.info("Forcing token refresh (keepalive)...");
+        // Reset expiry to force a refresh
+        this.tokenExpiresAt = 0;
+        String token = refreshAccessToken();
+        return token != null;
+    }
+
+    /**
      * Refresh the access token using the separate refresh token.
      * This ensures we always have a valid session to talk to Schwab.
      * 
