@@ -216,22 +216,18 @@ public class SchwabApiService {
                 }
             }
 
-            // 3. Use whichever is NEWER
-            if (fileUpdatedAt > dbUpdatedAt && fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
+            // 3. ALWAYS prefer file tokens if available (they are freshly generated)
+            // This ensures the bundled schwab_tokens.json from deployment takes priority
+            if (fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
                 this.refreshToken = fileRefreshToken;
                 this.accessToken = fileAccessToken;
-                logger.info("Loaded NEWER Schwab tokens from local file (file={}, db={})", fileUpdatedAt, dbUpdatedAt);
+                logger.info("Loaded Schwab tokens from file/classpath (PRIORITY) - updating database");
                 // Migrate to DB
                 persistTokens();
             } else if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
                 this.refreshToken = dbRefreshToken;
                 this.accessToken = dbAccessToken;
-                logger.info("Loaded Schwab tokens from Database");
-            } else if (fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
-                this.refreshToken = fileRefreshToken;
-                this.accessToken = fileAccessToken;
-                logger.info("Loaded Schwab tokens from local file (bootstrap)");
-                persistTokens();
+                logger.info("Loaded Schwab tokens from Database (file not found)");
             }
         } catch (Exception e) {
             logger.warn("Failed to load persisted tokens: {}", e.getMessage());
