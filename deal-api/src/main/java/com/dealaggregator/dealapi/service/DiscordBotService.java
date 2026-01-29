@@ -71,6 +71,7 @@ public class DiscordBotService extends ListenerAdapter {
     private final CommandLogRepository commandLogRepo;
     private final IndicatorService indicatorService;
     private final SchwabApiService schwabService;
+    private final MarketCalendarService marketCalendarService; // NEW: For market hours checking
 
     private JDA jda; // Add class field
 
@@ -80,7 +81,8 @@ public class DiscordBotService extends ListenerAdapter {
     public DiscordBotService(BlackScholesService bsService, CommandParserService parserService,
             MarketDataService marketDataService, MassiveDataService massiveService,
             StrategyService strategyService, CommandLogRepository commandLogRepo,
-            IndicatorService indicatorService, SchwabApiService schwabService) {
+            IndicatorService indicatorService, SchwabApiService schwabService,
+            MarketCalendarService marketCalendarService) { // NEW parameter
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
@@ -89,6 +91,7 @@ public class DiscordBotService extends ListenerAdapter {
         this.commandLogRepo = commandLogRepo;
         this.indicatorService = indicatorService;
         this.schwabService = schwabService;
+        this.marketCalendarService = marketCalendarService; // NEW assignment
     }
 
     /**
@@ -1303,6 +1306,10 @@ public class DiscordBotService extends ListenerAdapter {
      * Handle !strad <dte> command
      * Example: !strad 0 -> Shows 0DTE SPX ATM straddle price
      * Example: !strad 7 -> Shows 7DTE SPX ATM straddle price
+     * 
+     * BLOCKS the command if:
+     * - Market is currently closed (weekend, holiday, outside hours)
+     * - Requested expiry date is not a trading day
      */
     private void handleStradCommand(MessageReceivedEvent event, String message) {
         try {
@@ -1318,6 +1325,34 @@ public class DiscordBotService extends ListenerAdapter {
                     return;
                 }
             }
+
+            // ============================================
+            // NEW: Check if market is open/expiry is valid
+            // ============================================
+
+            // Check 1: Is the market currently open?
+            if (!marketCalendarService.isMarketOpen()) {
+                String closedMessage = marketCalendarService.formatClosedMessage(dte);
+                event.getChannel().sendMessage(closedMessage).queue();
+                return;
+            }
+
+            // Check 2: Is the requested expiry a trading day?
+            LocalDate expiryDate = LocalDate.now().plusDays(dte);
+            if (!marketCalendarService.isTradingDay(expiryDate)) {
+                String invalidExpiryMessage = "📅 **" + expiryDate + "** is not a trading day.\n\n" +
+                        "**Try one of these instead:**\n";
+                for (MarketCalendarService.ExpiryOption opt : marketCalendarService.suggestNearbyExpiries(dte)) {
+                    invalidExpiryMessage += "• `!strad " + opt.getDte() + "` → " +
+                            opt.getDate().format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d")) + "\n";
+                }
+                event.getChannel().sendMessage(invalidExpiryMessage).queue();
+                return;
+            }
+
+            // ============================================
+            // Market is open & expiry is valid - proceed!
+            // ============================================
 
             // Fetch SPX straddle from Schwab API
             Optional<SchwabApiService.SPXStraddle> straddleData = schwabService.getSpxStraddle(dte);
