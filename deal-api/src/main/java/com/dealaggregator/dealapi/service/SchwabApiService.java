@@ -220,18 +220,12 @@ public class SchwabApiService {
             // This ensures the bundled schwab_tokens.json from deployment takes priority
             if (fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
                 this.refreshToken = fileRefreshToken;
-                this.accessToken = fileAccessToken;
-                // Set expiry so we USE this access token before trying to refresh
-                // Assume it's valid for ~25 minutes from load
-                if (this.accessToken != null && !this.accessToken.isEmpty()) {
-                    this.tokenExpiresAt = System.currentTimeMillis() + (25 * 60 * 1000L);
-                    logger.info(
-                            "Loaded Schwab tokens from file/classpath (PRIORITY) - access token valid until refresh");
-                } else {
-                    logger.info(
-                            "Loaded Schwab refresh token from file/classpath (PRIORITY) - will refresh for access token");
-                }
-                // Migrate to DB
+                // Don't trust the access token from file - it may be stale
+                // Force a refresh using the valid refresh_token
+                this.accessToken = null;
+                this.tokenExpiresAt = 0;
+                logger.info("Loaded Schwab REFRESH token from file/classpath (PRIORITY) - will get fresh access token");
+                // Migrate refresh token to DB
                 persistTokens();
             } else if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
                 this.refreshToken = dbRefreshToken;
