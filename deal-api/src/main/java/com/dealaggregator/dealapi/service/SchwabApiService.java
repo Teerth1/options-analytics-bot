@@ -221,12 +221,25 @@ public class SchwabApiService {
             if (fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
                 this.refreshToken = fileRefreshToken;
                 this.accessToken = fileAccessToken;
-                logger.info("Loaded Schwab tokens from file/classpath (PRIORITY) - updating database");
+                // Set expiry so we USE this access token before trying to refresh
+                // Assume it's valid for ~25 minutes from load
+                if (this.accessToken != null && !this.accessToken.isEmpty()) {
+                    this.tokenExpiresAt = System.currentTimeMillis() + (25 * 60 * 1000L);
+                    logger.info(
+                            "Loaded Schwab tokens from file/classpath (PRIORITY) - access token valid until refresh");
+                } else {
+                    logger.info(
+                            "Loaded Schwab refresh token from file/classpath (PRIORITY) - will refresh for access token");
+                }
                 // Migrate to DB
                 persistTokens();
             } else if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
                 this.refreshToken = dbRefreshToken;
                 this.accessToken = dbAccessToken;
+                // Also trust DB access token if present
+                if (this.accessToken != null && !this.accessToken.isEmpty()) {
+                    this.tokenExpiresAt = System.currentTimeMillis() + (25 * 60 * 1000L);
+                }
                 logger.info("Loaded Schwab tokens from Database (file not found)");
             }
         } catch (Exception e) {
