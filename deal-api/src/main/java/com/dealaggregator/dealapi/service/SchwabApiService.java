@@ -168,76 +168,60 @@ public class SchwabApiService {
 
     private void loadPersistedTokens() {
         try {
-            Long dbUpdatedAt = 0L;
-            String dbRefreshToken = null;
-            String dbAccessToken = null;
+            // 1. Check Database (Primary Source of Truth)
+            Optional<SchwabToken> dbTokenOpt = tokenRepository.findById(TOKEN_ID);
+            if (dbTokenOpt.isPresent()) {
+                SchwabToken dbToken = dbTokenOpt.get();
+                String dbRefreshToken = dbToken.getRefreshToken();
+                String dbAccessToken = dbToken.getAccessToken();
 
-            // 1. Check database
-            java.util.Optional<SchwabToken> dbToken = tokenRepository.findById(TOKEN_ID);
-            if (dbToken.isPresent()) {
-                SchwabToken token = dbToken.get();
-                dbUpdatedAt = token.getUpdatedAt() != null ? token.getUpdatedAt() : 0L;
-                dbRefreshToken = token.getRefreshToken();
-                dbAccessToken = token.getAccessToken();
-            }
+                if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
+                    this.refreshToken = dbRefreshToken;
+                    this.accessToken = dbAccessToken;
 
-            // 2. Check local file OR classpath resource
-            Long fileUpdatedAt = 0L;
-            String fileRefreshToken = null;
-            String fileAccessToken = null;
-
-            // Try filesystem first
-            java.io.File file = new java.io.File(TOKENS_FILE);
-            java.io.InputStream tokenStream = null;
-
-            if (file.exists()) {
-                tokenStream = new java.io.FileInputStream(file);
-                fileUpdatedAt = file.lastModified();
-            } else {
-                // Try classpath (for Railway/JAR deployment)
-                tokenStream = getClass().getClassLoader().getResourceAsStream(TOKENS_FILE);
-                if (tokenStream != null) {
-                    fileUpdatedAt = System.currentTimeMillis(); // Assume fresh if from classpath
+                    if (this.accessToken != null && !this.accessToken.isEmpty()) {
+                        // Optimistically assume it's valid for now, refresh will validate it
+                        this.tokenExpiresAt = System.currentTimeMillis() + (30 * 60 * 1000L);
+                    }
+                    logger.info("✅ Loaded Schwab tokens from DATABASE. Refresh Token: {}...",
+                            (this.refreshToken.length() > 10 ? this.refreshToken.substring(0, 10) : "short"));
+                    return; // Successfully loaded from DB, we are done.
                 }
+            } else {
+                logger.info("No Schwab tokens found in DATABASE.");
             }
 
-            if (tokenStream != null) {
-                try {
+            // 2. Check Environment Variables / Application Properties (Bootstrap /
+            // Fallback)
+            if (refreshToken != null && !refreshToken.isEmpty() && !refreshToken.equals("${SCHWAB_REFRESH_TOKEN}")) {
+                logger.info("⚠️  Using Schwab Refresh Token from ENVIRONMENT/PROPERTIES. (Bootstrap Mode)");
+                // We have a token from env, but it wasn't in DB.
+                // We should persist it to DB immediately so we track it from now on.
+                persistTokens();
+                return;
+            }
+
+            // 3. Last Resort: Check legacy local file (schwab_tokens.json)
+            // (Keeping this for backward compatibility if manual file placement is used)
+            java.io.File file = new java.io.File(TOKENS_FILE);
+            if (file.exists()) {
+                try (InputStream tokenStream = new java.io.FileInputStream(file)) {
                     JsonNode root = objectMapper.readTree(tokenStream);
                     if (root.has("refresh_token")) {
-                        fileRefreshToken = root.get("refresh_token").asText();
-                        fileAccessToken = root.has("access_token") ? root.get("access_token").asText() : null;
-                        if (root.has("updated_at")) {
-                            fileUpdatedAt = root.get("updated_at").asLong() * 1000;
-                        }
+                        this.refreshToken = root.get("refresh_token").asText();
+                        this.accessToken = null; // Don't trust file access token
+                        logger.info("⚠️  Loaded Schwab REFRESH token from LOCAL FILE: {}", TOKENS_FILE);
+                        persistTokens(); // Migrate to DB
+                        return;
                     }
-                } finally {
-                    tokenStream.close();
                 }
             }
 
-            // 3. ALWAYS prefer file tokens if available (they are freshly generated)
-            // This ensures the bundled schwab_tokens.json from deployment takes priority
-            if (fileRefreshToken != null && !fileRefreshToken.isEmpty()) {
-                this.refreshToken = fileRefreshToken;
-                // Don't trust the access token from file - it may be stale
-                // Force a refresh using the valid refresh_token
-                this.accessToken = null;
-                this.tokenExpiresAt = 0;
-                logger.info("Loaded Schwab REFRESH token from file/classpath (PRIORITY) - will get fresh access token");
-                // Migrate refresh token to DB
-                persistTokens();
-            } else if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
-                this.refreshToken = dbRefreshToken;
-                this.accessToken = dbAccessToken;
-                // Also trust DB access token if present
-                if (this.accessToken != null && !this.accessToken.isEmpty()) {
-                    this.tokenExpiresAt = System.currentTimeMillis() + (25 * 60 * 1000L);
-                }
-                logger.info("Loaded Schwab tokens from Database (file not found)");
-            }
+            logger.error(
+                    "❌ CRITICAL: No valid Schwab Refresh Token found in Database, Environment, or File! Bot will fail to authenticate.");
+
         } catch (Exception e) {
-            logger.warn("Failed to load persisted tokens: {}", e.getMessage());
+            logger.error("Failed to load persisted tokens", e);
         }
     }
 
@@ -247,9 +231,11 @@ public class SchwabApiService {
             SchwabToken token = new SchwabToken(TOKEN_ID, this.refreshToken, this.accessToken,
                     System.currentTimeMillis());
             tokenRepository.save(token);
-            logger.info("Persisted Schwab tokens to Database");
+            logger.info("💾 Persisted Schwab tokens to Database. Refresh Token: {}...",
+                    (this.refreshToken != null && this.refreshToken.length() > 10) ? this.refreshToken.substring(0, 10)
+                            : "null");
         } catch (Exception e) {
-            logger.error("Failed to persist Schwab tokens to Database", e);
+            logger.error("❌ Failed to persist Schwab tokens to Database", e);
         }
     }
 
