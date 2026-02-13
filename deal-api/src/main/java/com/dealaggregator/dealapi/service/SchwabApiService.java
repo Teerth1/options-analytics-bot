@@ -168,8 +168,33 @@ public class SchwabApiService {
 
     private void loadPersistedTokens() {
         try {
-            // 1. Check Database (Primary Source of Truth)
+            // Capture the token injected from Environment/Properties BEFORE we overwrite it
+            String envRefreshToken = this.refreshToken;
+            boolean validEnvToken = envRefreshToken != null && !envRefreshToken.isEmpty()
+                    && !envRefreshToken.equals("${SCHWAB_REFRESH_TOKEN}");
+
+            // 1. Check Database
             Optional<SchwabToken> dbTokenOpt = tokenRepository.findById(TOKEN_ID);
+
+            // PRIORITY: If Environment has a valid token that DIFFERS from DB, trust
+            // Environment
+            // This allows manual token rotation via Railway Variables
+            if (validEnvToken) {
+                String dbRefreshToken = dbTokenOpt.map(SchwabToken::getRefreshToken).orElse(null);
+                if (dbRefreshToken == null || !dbRefreshToken.equals(envRefreshToken)) {
+                    logger.info("⚠️  Environment Token differs from Database (or DB empty). Using ENVIRONMENT token.");
+                    logger.info("    Env Token: {}... | DB Token: {}...",
+                            envRefreshToken.length() > 10 ? envRefreshToken.substring(0, 10) : "short",
+                            dbRefreshToken != null && dbRefreshToken.length() > 10 ? dbRefreshToken.substring(0, 10)
+                                    : "none");
+                    this.refreshToken = envRefreshToken;
+                    this.accessToken = null; // Force fresh access token
+                    persistTokens(); // Overwrite DB with the new env token
+                    return;
+                }
+            }
+
+            // 2. Load from Database (normal path - Env matches DB or Env is empty)
             if (dbTokenOpt.isPresent()) {
                 SchwabToken dbToken = dbTokenOpt.get();
                 String dbRefreshToken = dbToken.getRefreshToken();
