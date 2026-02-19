@@ -1296,8 +1296,8 @@ public class DiscordBotService extends ListenerAdapter {
 
         String message = event.getMessage().getContentRaw().trim();
 
-        // Handle !strad <dte> command
-        if (message.toLowerCase().startsWith("!strad")) {
+        // Handle !strad <dte> or !vol <dte> command
+        if (message.toLowerCase().startsWith("!strad") || message.toLowerCase().startsWith("!vol")) {
             handleStradCommand(event, message);
         }
     }
@@ -1379,10 +1379,14 @@ public class DiscordBotService extends ListenerAdapter {
      */
     private String formatStraddleResponse(SchwabApiService.SPXStraddle straddle) {
         return String.format(
-                "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f",
+                "**Date:** %s\n**Straddle:** $%.2f\n**Strike Used:** %.0f\n**Spot Price:** $%.2f\n" +
+                        "**Call IV:** %.2f%%  |  **Put IV:** %.2f%%\n**Avg IV:** %.2f%%",
                 straddle.getExpirationDate(),
                 straddle.getStraddlePrice(),
                 straddle.getStrike(),
-                straddle.getUnderlyingPrice());
+                straddle.getUnderlyingPrice(),
+                straddle.getCallIV(),
+                straddle.getPutIV(),
+                straddle.getAverageIV());
     }
 }

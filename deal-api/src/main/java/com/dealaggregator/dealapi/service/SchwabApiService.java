@@ -362,12 +362,17 @@ public class SchwabApiService {
             double putBid = putOption.path("bid").asDouble();
             double putAsk = putOption.path("ask").asDouble();
 
+            // Extract implied volatility from each contract
+            double callIV = callOption.path("volatility").asDouble();
+            double putIV = putOption.path("volatility").asDouble();
+
             // Parse actual expiration date from the key (format: "2026-01-05:3")
             String actualExpDate = firstExpKey.split(":")[0];
 
             return Optional.of(new SPXStraddle(
                     callBid, callAsk, putBid, putAsk,
-                    underlyingPrice, atmStrike, actualExpDate));
+                    underlyingPrice, atmStrike, actualExpDate,
+                    callIV, putIV));
 
         } catch (Exception e) {
             logger.error("Error parsing Schwab option chain", e);
@@ -407,9 +412,12 @@ public class SchwabApiService {
         private final double underlyingPrice;
         private final double strike;
         private final String expirationDate;
+        private final double callIV;
+        private final double putIV;
 
         public SPXStraddle(double callBid, double callAsk, double putBid, double putAsk,
-                double underlyingPrice, double strike, String expirationDate) {
+                double underlyingPrice, double strike, String expirationDate,
+                double callIV, double putIV) {
             this.callBid = callBid;
             this.callAsk = callAsk;
             this.putBid = putBid;
@@ -417,6 +425,8 @@ public class SchwabApiService {
             this.underlyingPrice = underlyingPrice;
             this.strike = strike;
             this.expirationDate = expirationDate;
+            this.callIV = callIV;
+            this.putIV = putIV;
         }
 
         public double getCallMid() {
@@ -441,6 +451,18 @@ public class SchwabApiService {
 
         public String getExpirationDate() {
             return expirationDate;
+        }
+
+        public double getCallIV() {
+            return callIV;
+        }
+
+        public double getPutIV() {
+            return putIV;
+        }
+
+        public double getAverageIV() {
+            return (callIV + putIV) / 2.0;
         }
     }
 }
