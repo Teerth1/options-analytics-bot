@@ -173,28 +173,11 @@ public class SchwabApiService {
             boolean validEnvToken = envRefreshToken != null && !envRefreshToken.isEmpty()
                     && !envRefreshToken.equals("${SCHWAB_REFRESH_TOKEN}");
 
-            // 1. Check Database
+            // 1. DATABASE IS THE SOURCE OF TRUTH.
+            // If the DB has a valid token, always use it — even if the env var differs.
+            // The env var becomes stale after the first token rotation, so trusting it
+            // over the DB would clobber the freshly-rotated token and break auth.
             Optional<SchwabToken> dbTokenOpt = tokenRepository.findById(TOKEN_ID);
-
-            // PRIORITY: If Environment has a valid token that DIFFERS from DB, trust
-            // Environment
-            // This allows manual token rotation via Railway Variables
-            if (validEnvToken) {
-                String dbRefreshToken = dbTokenOpt.map(SchwabToken::getRefreshToken).orElse(null);
-                if (dbRefreshToken == null || !dbRefreshToken.equals(envRefreshToken)) {
-                    logger.info("⚠️  Environment Token differs from Database (or DB empty). Using ENVIRONMENT token.");
-                    logger.info("    Env Token: {}... | DB Token: {}...",
-                            envRefreshToken.length() > 10 ? envRefreshToken.substring(0, 10) : "short",
-                            dbRefreshToken != null && dbRefreshToken.length() > 10 ? dbRefreshToken.substring(0, 10)
-                                    : "none");
-                    this.refreshToken = envRefreshToken;
-                    this.accessToken = null; // Force fresh access token
-                    persistTokens(); // Overwrite DB with the new env token
-                    return;
-                }
-            }
-
-            // 2. Load from Database (normal path - Env matches DB or Env is empty)
             if (dbTokenOpt.isPresent()) {
                 SchwabToken dbToken = dbTokenOpt.get();
                 String dbRefreshToken = dbToken.getRefreshToken();
@@ -210,31 +193,29 @@ public class SchwabApiService {
                     }
                     logger.info("✅ Loaded Schwab tokens from DATABASE. Refresh Token: {}...",
                             (this.refreshToken.length() > 10 ? this.refreshToken.substring(0, 10) : "short"));
-                    return; // Successfully loaded from DB, we are done.
+                    return; // DB wins — done.
                 }
-            } else {
-                logger.info("No Schwab tokens found in DATABASE.");
             }
 
-            // 2. Check Environment Variables / Application Properties (Bootstrap /
-            // Fallback)
-            if (refreshToken != null && !refreshToken.isEmpty() && !refreshToken.equals("${SCHWAB_REFRESH_TOKEN}")) {
-                logger.info("⚠️  Using Schwab Refresh Token from ENVIRONMENT/PROPERTIES. (Bootstrap Mode)");
-                // We have a token from env, but it wasn't in DB.
-                // We should persist it to DB immediately so we track it from now on.
-                persistTokens();
+            // 2. DB is empty — fall back to env var (bootstrap / first-time setup).
+            // This is the ONLY time the env var is used. Once the DB has a token,
+            // the env var is ignored so stale Railway variables don't break rotations.
+            if (validEnvToken) {
+                logger.info("⚠️  DB empty. Bootstrapping from ENVIRONMENT token.");
+                this.refreshToken = envRefreshToken;
+                this.accessToken = null; // Force fresh access token
+                persistTokens(); // Save to DB so we never need the env var again
                 return;
             }
 
             // 3. Last Resort: Check legacy local file (schwab_tokens.json)
-            // (Keeping this for backward compatibility if manual file placement is used)
             java.io.File file = new java.io.File(TOKENS_FILE);
             if (file.exists()) {
                 try (InputStream tokenStream = new java.io.FileInputStream(file)) {
                     JsonNode root = objectMapper.readTree(tokenStream);
                     if (root.has("refresh_token")) {
                         this.refreshToken = root.get("refresh_token").asText();
-                        this.accessToken = null; // Don't trust file access token
+                        this.accessToken = null;
                         logger.info("⚠️  Loaded Schwab REFRESH token from LOCAL FILE: {}", TOKENS_FILE);
                         persistTokens(); // Migrate to DB
                         return;
