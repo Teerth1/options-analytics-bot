@@ -139,15 +139,19 @@ public class SchwabApiService {
                 int expiresIn = json.get("expires_in").asInt();
                 tokenExpiresAt = System.currentTimeMillis() + (expiresIn - 60) * 1000L; // Refresh 1 min early
 
-                // CRITICAL: Capture the new refresh token if provided (Rotation)
+                // Capture the new refresh token if Schwab rotated it
                 if (json.has("refresh_token")) {
                     String newRefreshToken = json.get("refresh_token").asText();
                     if (!newRefreshToken.isEmpty() && !newRefreshToken.equals(refreshToken)) {
                         logger.info("Received new refresh token from Schwab. Rotating...");
                         this.refreshToken = newRefreshToken;
-                        persistTokens();
                     }
                 }
+
+                // Always persist after a successful refresh so the DB stays current.
+                // Previously this only ran on refresh token rotation — meaning the DB
+                // would go stale between rotations and never reflect the latest access token.
+                persistTokens();
 
                 logger.info("Schwab access token refreshed successfully");
                 return accessToken;
