@@ -75,6 +75,8 @@ public class DiscordBotService extends ListenerAdapter {
 
     private JDA jda; // Add class field
 
+    private final GexService gexService;
+
     /**
      * Constructor for DiscordBotService with dependency injection.
      */
@@ -82,7 +84,7 @@ public class DiscordBotService extends ListenerAdapter {
             MarketDataService marketDataService, MassiveDataService massiveService,
             StrategyService strategyService, CommandLogRepository commandLogRepo,
             IndicatorService indicatorService, SchwabApiService schwabService,
-            MarketCalendarService marketCalendarService) { // NEW parameter
+            MarketCalendarService marketCalendarService, GexService gexService) { // NEW parameter
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
@@ -92,6 +94,7 @@ public class DiscordBotService extends ListenerAdapter {
         this.indicatorService = indicatorService;
         this.schwabService = schwabService;
         this.marketCalendarService = marketCalendarService; // NEW assignment
+        this.gexService = gexService;
     }
 
     /**
@@ -182,6 +185,9 @@ public class DiscordBotService extends ListenerAdapter {
                 // 12. Stats Command - View bot usage metrics
                 Commands.slash("stats", "View bot usage statistics and capacity"),
 
+                Commands.slash("gex", "Show Gamma Exposure map for a ticker (SPX, SPY, etc.)")
+                        .addOption(OptionType.STRING, "ticker", "Symbol (e.g. SPY, SPX)", true),
+
                 // 13. Iron Condor Command - 4 strikes
                 // Example: /ic open SPX 6700 6750 6850 6900 0 2.50
                 Commands.slash("ic", "Open an iron condor (4 strikes)")
@@ -269,6 +275,8 @@ public class DiscordBotService extends ListenerAdapter {
             verticalSlash(event);
         } else if (event.getName().equals("fly")) {
             flySlash(event);
+        } else if (event.getName().equals("gex")) {
+            gexSlash(event);
         }
     }
 
@@ -455,6 +463,88 @@ public class DiscordBotService extends ListenerAdapter {
             event.getHook().sendMessage("❌ Error: " + errMsg +
                     "\n⚠️ Lambda API may be initializing. Try again in a few seconds.").queue();
         }
+    }
+
+    /**
+     * Handle /gex command — Gamma Exposure map for a ticker.
+     *
+     * Flow:
+     *   1. Fetch the full option chain from Schwab (via SchwabApiService)
+     *   2. Calculate GEX per strike (via GexService)
+     *   3. Format as a strike ladder and post to Discord
+     */
+    private void gexSlash(SlashCommandInteractionEvent event) {
+        String ticker = event.getOption("ticker").getAsString().toUpperCase();
+        event.deferReply().queue(); // Schwab API call may take > 3s
+
+        try {
+            // Step 1: Fetch raw option chain from Schwab
+            Optional<com.fasterxml.jackson.databind.JsonNode> chainOpt =
+                    schwabService.getFullOptionChain(ticker);
+
+            if (chainOpt.isEmpty()) {
+                event.getHook().sendMessage(
+                        "❌ Could not fetch option chain for **" + ticker + "**.\n" +
+                        "Check the ticker symbol or try again in a moment.").queue();
+                return;
+            }
+
+            // Step 2: Run GEX calculation
+            Optional<GexService.GexResult> resultOpt =
+                    gexService.calculateGex(chainOpt.get(), ticker);
+
+            if (resultOpt.isEmpty()) {
+                event.getHook().sendMessage(
+                        "❌ GEX calculation failed for **" + ticker + "**.\n" +
+                        "The option chain may not have gamma data available.").queue();
+                return;
+            }
+
+            // Step 3: Format and send
+            String output = formatGexLadder(resultOpt.get());
+            event.getHook().sendMessage(output).queue();
+
+        } catch (Exception e) {
+            logger.error("Error in /gex command for {}", ticker, e);
+            event.getHook().sendMessage("❌ Unexpected error: " + e.getMessage()).queue();
+        }
+    }
+
+    /**
+     * Format a GexResult as a Discord code-block strike ladder.
+     *
+     * Only shows strikes within 30 points of spot price to keep it readable,
+     * but always includes milestone rows (Call Wall, Put Wall, Zero Flip)
+     * even if they are far from spot.
+     */
+    private String formatGexLadder(GexService.GexResult result) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("```\n");
+        sb.append("[ ").append(result.symbol).append(" GAMMA MAP ]\n");
+        sb.append(String.format("Spot: $%.2f%n", result.spotPrice));
+        sb.append("\n");
+        sb.append(String.format("  %-8s | %-13s | %s%n", "Strike", "Net GEX", "Type"));
+        sb.append("------------------------------------------\n");
+
+        for (GexService.GexRow row : result.rows) {
+            // Always show milestone rows; skip non-milestones far from spot
+            boolean nearSpot = Math.abs(row.strike - result.spotPrice) <= 30;
+            boolean isMilestone = row.label != null;
+            if (!nearSpot && !isMilestone) continue;
+
+            double gexBillions = row.netGex / 1_000_000_000.0;
+            String gexStr = String.format("%+.2fB", gexBillions);
+
+            // Mark the row closest to spot with an arrow
+            String spotMarker = Math.abs(row.strike - result.spotPrice) < 2.5
+                    ? "<-- SPOT" : "";
+            String label = isMilestone ? row.label : spotMarker;
+
+            sb.append(String.format("  %-8.2f | %-13s | %s%n", row.strike, gexStr, label));
+        }
+
+        sb.append("```");
+        return sb.toString();
     }
 
     private void stockSlash(SlashCommandInteractionEvent event) {
@@ -1300,6 +1390,11 @@ public class DiscordBotService extends ListenerAdapter {
         if (message.toLowerCase().startsWith("!strad") || message.toLowerCase().startsWith("!vol")) {
             handleStradCommand(event, message);
         }
+
+        // Handle !gex command
+        if (message.toLowerCase().startsWith("!gex")) {
+            handleGexCommand(event, message);
+        }
     }
 
     /**
@@ -1388,5 +1483,38 @@ public class DiscordBotService extends ListenerAdapter {
                 straddle.getCallIV(),
                 straddle.getPutIV(),
                 straddle.getAverageIV());
+    }
+
+    /**
+     * Handle !gex <ticker> command (prefix-style).
+     * Example: !gex SPY  →  GEX ladder for SPY
+     */
+    private void handleGexCommand(MessageReceivedEvent event, String message) {
+        String[] parts = message.split("\\s+");
+        String ticker = parts.length >= 2 ? parts[1].toUpperCase() : "SPY";
+
+        try {
+            Optional<com.fasterxml.jackson.databind.JsonNode> chainOpt =
+                    schwabService.getFullOptionChain(ticker);
+
+            if (chainOpt.isEmpty()) {
+                event.getChannel().sendMessage("❌ Could not fetch option chain for **" + ticker + "**").queue();
+                return;
+            }
+
+            Optional<GexService.GexResult> resultOpt =
+                    gexService.calculateGex(chainOpt.get(), ticker);
+
+            if (resultOpt.isEmpty()) {
+                event.getChannel().sendMessage("❌ GEX calculation failed for **" + ticker + "**").queue();
+                return;
+            }
+
+            event.getChannel().sendMessage(formatGexLadder(resultOpt.get())).queue();
+
+        } catch (Exception e) {
+            logger.error("Error in !gex command for {}", ticker, e);
+            event.getChannel().sendMessage("❌ Error: " + e.getMessage()).queue();
+        }
     }
 }

@@ -387,6 +387,88 @@ public class SchwabApiService {
     }
 
     /**
+     * Normalize a user-supplied ticker to the symbol Schwab expects in the API.
+     * SPX (S&P 500 cash index) must be prefixed with "$" in Schwab's system.
+     * SPXW (weekdaily SPX) is also mapped. All other tickers pass through unchanged.
+     */
+    private static String toSchwabSymbol(String ticker) {
+        String upper = ticker.trim().toUpperCase();
+        if (upper.equals("SPX") || upper.equals("SPXW")) {
+            return "$" + upper;
+        }
+        return upper;
+    }
+
+    /**
+     * Fetch the full, broad option chain for any ticker.
+     *
+     * This is the core data-harvest call for GEX analysis. It pulls 50 strikes
+     * on each side of ATM across ALL expirations so that the GexService can
+     * compute cumulative gamma from 0DTE all the way out to monthlies.
+     *
+     * Schwab JSON shape returned (abbreviated):
+     * <pre>
+     * {
+     *   "underlyingPrice": 512.45,
+     *   "callExpDateMap": {
+     *     "2026-03-19:0": {               // key = "date:dte"
+     *       "510.0": [ {                  // key = strike as string
+     *         "gamma": 0.0142,
+     *         "openInterest": 12500,
+     *         ...many other fields...
+     *       } ]
+     *     }
+     *   },
+     *   "putExpDateMap": { (same shape as callExpDateMap) }
+     * }
+     * </pre>
+     *
+     * @param ticker e.g. "SPY", "SPX", "QQQ" — SPX is automatically normalized to "$SPX"
+     * @return Optional containing the root JsonNode, or empty if the request failed.
+     */
+    public java.util.Optional<JsonNode> getFullOptionChain(String ticker) {
+        String token = refreshAccessToken();
+        if (token == null) {
+            logger.error("No valid Schwab token available for getFullOptionChain");
+            return java.util.Optional.empty();
+        }
+
+        String symbol = toSchwabSymbol(ticker);
+        try {
+            String encodedSymbol = java.net.URLEncoder.encode(symbol, StandardCharsets.UTF_8);
+            String url = BASE_URL + "/chains"
+                    + "?symbol=" + encodedSymbol
+                    + "&contractType=ALL"
+                    + "&strikeCount=50"          // 50 strikes each side of ATM
+                    + "&includeUnderlyingQuote=true"; // embeds spot price in response
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<java.io.InputStream> response =
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() == 200) {
+                String body = getResponseBody(response);
+                JsonNode root = objectMapper.readTree(body);
+                logger.info("Fetched full option chain for {} ({} status)", symbol, response.statusCode());
+                return java.util.Optional.of(root);
+            } else {
+                String errorBody = getResponseBody(response);
+                logger.error("Schwab option chain error for {}: {} — {}", symbol, response.statusCode(), errorBody);
+                return java.util.Optional.empty();
+            }
+        } catch (Exception e) {
+            logger.error("Error fetching option chain for {}", symbol, e);
+            return java.util.Optional.empty();
+        }
+    }
+
+    /**
      * Data class for SPX straddle
      */
     public static class SPXStraddle {
