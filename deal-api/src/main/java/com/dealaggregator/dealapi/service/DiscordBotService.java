@@ -522,12 +522,26 @@ public class DiscordBotService extends ListenerAdapter {
         sb.append("```\n");
         sb.append("[ ").append(result.symbol).append(" GAMMA MAP ]\n");
         sb.append(String.format("Spot: $%.2f%n", result.spotPrice));
-        sb.append("\n");
-        sb.append(String.format("  %-8s | %-13s | %s%n", "Strike", "Net GEX", "Type"));
+
+        // Always show the milestones as a summary header
+        sb.append(String.format("🟢 Call Wall: $%.0f  |  🔴 Put Wall: $%.0f",
+                result.callWall, result.putWall));
+        if (result.hasZeroFlip) {
+            sb.append(String.format("  |  ⚡ Zero Flip: $%.0f", result.zeroFlip));
+        }
+        sb.append("\n\n");
+        sb.append(String.format("  %-8s | %-13s | %s%n", "Strike", "Net GEX", ""));
         sb.append("------------------------------------------\n");
 
+        // Find the single closest strike to spot (for the SPOT arrow)
+        GexService.GexRow spotRow = null;
+        double minDist = Double.MAX_VALUE;
         for (GexService.GexRow row : result.rows) {
-            // Always show milestone rows; skip non-milestones far from spot
+            double dist = Math.abs(row.strike - result.spotPrice);
+            if (dist < minDist) { minDist = dist; spotRow = row; }
+        }
+
+        for (GexService.GexRow row : result.rows) {
             boolean nearSpot = Math.abs(row.strike - result.spotPrice) <= 30;
             boolean isMilestone = row.label != null;
             if (!nearSpot && !isMilestone) continue;
@@ -535,10 +549,8 @@ public class DiscordBotService extends ListenerAdapter {
             double gexBillions = row.netGex / 1_000_000_000.0;
             String gexStr = String.format("%+.2fB", gexBillions);
 
-            // Mark the row closest to spot with an arrow
-            String spotMarker = Math.abs(row.strike - result.spotPrice) < 2.5
-                    ? "<-- SPOT" : "";
-            String label = isMilestone ? row.label : spotMarker;
+            String label = isMilestone ? row.label
+                    : (row == spotRow ? "<-- SPOT" : "");
 
             sb.append(String.format("  %-8.2f | %-13s | %s%n", row.strike, gexStr, label));
         }
