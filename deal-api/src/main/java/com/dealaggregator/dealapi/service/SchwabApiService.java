@@ -189,12 +189,8 @@ public class SchwabApiService {
 
                 if (dbRefreshToken != null && !dbRefreshToken.isEmpty()) {
                     this.refreshToken = dbRefreshToken;
-                    this.accessToken = dbAccessToken;
-
-                    if (this.accessToken != null && !this.accessToken.isEmpty()) {
-                        // Optimistically assume it's valid for now, refresh will validate it
-                        this.tokenExpiresAt = System.currentTimeMillis() + (30 * 60 * 1000L);
-                    }
+                    this.accessToken = null;       // always get a fresh access token
+                    this.tokenExpiresAt = 0;       // force a real exchange on next call
                     logger.info("✅ Loaded Schwab tokens from DATABASE. Refresh Token: {}...",
                             (this.refreshToken.length() > 10 ? this.refreshToken.substring(0, 10) : "short"));
                     return; // DB wins — done.
