@@ -171,10 +171,13 @@ public class GexService {
             }
         }
 
-        // ZERO FLIP
-        GexRow zeroFlipRow = null; // null means "not found yet"
+        // ZERO FLIP — first strike BELOW spot where net GEX goes negative
+        // rows are sorted high→low, so skip anything at or above spot first
+        GexRow zeroFlipRow = null;
+        boolean passedSpot = false;
         for (GexRow row : rows) {
-            if (row.netGex < 0) {
+            if (row.strike <= spotPrice) passedSpot = true;
+            if (passedSpot && row.netGex < 0) {
                 zeroFlipRow = row;
                 break;
             }
