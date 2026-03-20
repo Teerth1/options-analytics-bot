@@ -542,7 +542,7 @@ public class DiscordBotService extends ListenerAdapter {
         }
 
         for (GexService.GexRow row : result.rows) {
-            boolean nearSpot = Math.abs(row.strike - result.spotPrice) <= 30;
+            boolean nearSpot = Math.abs(row.strike - result.spotPrice) <= result.spotPrice * 0.02;
             boolean isMilestone = row.label != null;
             if (!nearSpot && !isMilestone) continue;
 
