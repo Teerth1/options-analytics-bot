@@ -76,6 +76,7 @@ public class DiscordBotService extends ListenerAdapter {
     private JDA jda; // Add class field
 
     private final GexService gexService;
+    private final GexChartGenerator gexChartGenerator;
 
     /**
      * Constructor for DiscordBotService with dependency injection.
@@ -84,7 +85,8 @@ public class DiscordBotService extends ListenerAdapter {
             MarketDataService marketDataService, MassiveDataService massiveService,
             StrategyService strategyService, CommandLogRepository commandLogRepo,
             IndicatorService indicatorService, SchwabApiService schwabService,
-            MarketCalendarService marketCalendarService, GexService gexService) { // NEW parameter
+            MarketCalendarService marketCalendarService, GexService gexService,
+            GexChartGenerator gexChartGenerator) { // NEW parameter
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
@@ -95,6 +97,7 @@ public class DiscordBotService extends ListenerAdapter {
         this.schwabService = schwabService;
         this.marketCalendarService = marketCalendarService; // NEW assignment
         this.gexService = gexService;
+        this.gexChartGenerator = gexChartGenerator;
     }
 
     /**
@@ -500,9 +503,21 @@ public class DiscordBotService extends ListenerAdapter {
                 return;
             }
 
-            // Step 3: Format and send
-            String output = formatGexLadder(resultOpt.get());
-            event.getHook().sendMessage(output).queue();
+            // Step 3: Generate Image and Send
+            byte[] imageBytes = gexChartGenerator.generateChart(resultOpt.get());
+            if (imageBytes != null) {
+                net.dv8tion.jda.api.utils.FileUpload file = net.dv8tion.jda.api.utils.FileUpload.fromData(imageBytes, "gex_" + ticker + ".png");
+                
+                net.dv8tion.jda.api.EmbedBuilder eb = new net.dv8tion.jda.api.EmbedBuilder();
+                eb.setColor(java.awt.Color.decode("#111111"));
+                eb.setTitle(ticker + " Gamma Exposure Profile");
+                eb.setImage("attachment://gex_" + ticker + ".png");
+                eb.setFooter("Powered by Graphics2D");
+                
+                event.getHook().sendMessageEmbeds(eb.build()).addFiles(file).queue();
+            } else {
+                event.getHook().sendMessage("❌ Failed to generate GEX chart image.").queue();
+            }
 
         } catch (Exception e) {
             logger.error("Error in /gex command for {}", ticker, e);
