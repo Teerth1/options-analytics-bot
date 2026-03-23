@@ -189,7 +189,8 @@ public class DiscordBotService extends ListenerAdapter {
                 Commands.slash("stats", "View bot usage statistics and capacity"),
 
                 Commands.slash("gex", "Show Gamma Exposure map for a ticker (SPX, SPY, etc.)")
-                        .addOption(OptionType.STRING, "ticker", "Symbol (e.g. SPY, SPX)", true),
+                        .addOption(OptionType.STRING, "ticker", "Symbol (e.g. SPY, SPX)", true)
+                        .addOption(OptionType.STRING, "layout", "H or V (optional)", false),
 
                 // 13. Iron Condor Command - 4 strikes
                 // Example: /ic open SPX 6700 6750 6850 6900 0 2.50
@@ -478,6 +479,15 @@ public class DiscordBotService extends ListenerAdapter {
      */
     private void gexSlash(SlashCommandInteractionEvent event) {
         String ticker = event.getOption("ticker").getAsString().toUpperCase();
+        
+        boolean isHorizontal = false;
+        if (event.getOption("layout") != null) {
+            String layoutStr = event.getOption("layout").getAsString().toUpperCase();
+            if (layoutStr.equals("H") || layoutStr.equals("HORIZONTAL")) {
+                isHorizontal = true;
+            }
+        }
+        
         event.deferReply().queue(); // Schwab API call may take > 3s
 
         try {
@@ -504,7 +514,7 @@ public class DiscordBotService extends ListenerAdapter {
             }
 
             // Step 3: Generate Image and Send
-            byte[] imageBytes = gexChartGenerator.generateChart(resultOpt.get());
+            byte[] imageBytes = gexChartGenerator.generateChart(resultOpt.get(), isHorizontal);
             if (imageBytes != null) {
                 net.dv8tion.jda.api.utils.FileUpload file = net.dv8tion.jda.api.utils.FileUpload.fromData(imageBytes, "gex_" + ticker + ".png");
                 
