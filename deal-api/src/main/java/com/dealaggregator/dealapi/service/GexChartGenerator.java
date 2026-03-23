@@ -116,8 +116,8 @@ public class GexChartGenerator {
                 String strikeStr = String.format("%.0f", row.strike);
                 
                 AffineTransform orig = g2.getTransform();
-                g2.translate(x + 15, height - 20);
-                g2.rotate(-Math.PI / 2);
+                g2.translate(x + 10, height - 15);
+                g2.rotate(-Math.PI / 4); // 45 degrees
                 g2.drawString(strikeStr, 0, 0);
                 g2.setTransform(orig);
 
