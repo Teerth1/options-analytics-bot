@@ -34,15 +34,26 @@ public class GexChartGenerator {
      */
     public byte[] generateChart(GexResult result) {
         try {
+            // Filter rows to only show strikes within exactly +/- 2.0% of spot price
+            // This prevents Discord from squishing the image and removes outrageous outlier strikes
+            double range = result.spotPrice * 0.020;
+            java.util.List<GexRow> filteredRows = result.rows.stream()
+                .filter(r -> Math.abs(r.strike - result.spotPrice) <= range)
+                .collect(java.util.stream.Collectors.toList());
+
+            if (filteredRows.isEmpty()) {
+                filteredRows = result.rows; // fallback
+            }
+
             // Find max GEX absolute value for X-axis scaling
             double maxGexAbs = 0;
-            for (GexRow row : result.rows) {
+            for (GexRow row : filteredRows) {
                 maxGexAbs = Math.max(maxGexAbs, Math.abs(row.netGex));
             }
             maxGexAbs *= 1.1; // 10% padding so bars don't touch edges
 
-            // Dynamic height based on rows
-            int numStrikes = result.rows.size();
+            // Dynamic height based on filtered rows
+            int numStrikes = filteredRows.size();
             int height = MARGIN_TOP + MARGIN_BOTTOM + (numStrikes * ROW_HEIGHT);
 
             // Create canvas
@@ -68,9 +79,20 @@ public class GexChartGenerator {
             // Setup scaling: (pixels from center to padding edge) / maxGEX
             double pixelsPerGex = (centerX - PADDING) / maxGexAbs;
 
+            // Find the SINGLE closest strike to spot price so we only draw ONE spot line
+            GexRow closestRow = null;
+            double minDist = Double.MAX_VALUE;
+            for (GexRow r : filteredRows) {
+                double dist = Math.abs(r.strike - result.spotPrice);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestRow = r;
+                }
+            }
+
             // Draw bars and labels
             int y = MARGIN_TOP;
-            for (GexRow row : result.rows) {
+            for (GexRow row : filteredRows) {
                 // Determine bar width
                 int barWidth = (int) (Math.abs(row.netGex) * pixelsPerGex);
 
@@ -92,9 +114,8 @@ public class GexChartGenerator {
                 g2.setColor(TEXT_COLOR);
                 g2.drawString(String.format("%.0f", row.strike), PADDING / 2, y + 14);
 
-                // Overlay spot line across the row if it's the closest strike
-                boolean nearSpot = Math.abs(row.strike - result.spotPrice) <= result.spotPrice * 0.001;
-                if (nearSpot) {
+                // Overlay spot line ONLY on the single absolute closest strike
+                if (row == closestRow) {
                     g2.setColor(SPOT_LINE_COLOR);
                     g2.drawLine(PADDING, y + ROW_HEIGHT / 2, WIDTH - PADDING, y + ROW_HEIGHT / 2);
                     g2.drawString(String.format("SPOT: %.2f", result.spotPrice), WIDTH - PADDING * 3, y + 14);
