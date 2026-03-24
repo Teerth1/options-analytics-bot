@@ -190,7 +190,8 @@ public class DiscordBotService extends ListenerAdapter {
 
                 Commands.slash("gex", "Show Gamma Exposure map for a ticker (SPX, SPY, etc.)")
                         .addOption(OptionType.STRING, "ticker", "Symbol (e.g. SPY, SPX)", true)
-                        .addOption(OptionType.STRING, "layout", "H or V (optional)", false),
+                        .addOption(OptionType.STRING, "layout", "H or V (optional)", false)
+                        .addOption(OptionType.INTEGER, "dte", "Target DTE (e.g. 0 for 0DTE, optional)", false),
 
                 // 13. Iron Condor Command - 4 strikes
                 // Example: /ic open SPX 6700 6750 6850 6900 0 2.50
@@ -487,6 +488,11 @@ public class DiscordBotService extends ListenerAdapter {
                 isHorizontal = true;
             }
         }
+
+        Integer targetDte = null;
+        if (event.getOption("dte") != null) {
+            targetDte = event.getOption("dte").getAsInt();
+        }
         
         event.deferReply().queue(); // Schwab API call may take > 3s
 
@@ -504,7 +510,7 @@ public class DiscordBotService extends ListenerAdapter {
 
             // Step 2: Run GEX calculation
             Optional<GexService.GexResult> resultOpt =
-                    gexService.calculateGex(chainOpt.get(), ticker);
+                    gexService.calculateGex(chainOpt.get(), ticker, targetDte);
 
             if (resultOpt.isEmpty()) {
                 event.getHook().sendMessage(
@@ -1540,7 +1546,8 @@ public class DiscordBotService extends ListenerAdapter {
             }
 
             Optional<GexService.GexResult> resultOpt =
-                    gexService.calculateGex(chainOpt.get(), ticker);
+                    gexService.calculateGex(chainOpt.get(), ticker, null); // prefix command defaults to ALL
+
 
             if (resultOpt.isEmpty()) {
                 event.getChannel().sendMessage("❌ GEX calculation failed for **" + ticker + "**").queue();
