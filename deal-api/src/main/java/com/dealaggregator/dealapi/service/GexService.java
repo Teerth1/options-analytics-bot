@@ -85,7 +85,7 @@ public class GexService {
      * │ └── openInterest
      * └── putExpDateMap (same shape as callExpDateMap)
      */
-    public Optional<GexResult> calculateGex(JsonNode chainRoot, String symbol) {
+    public Optional<GexResult> calculateGex(JsonNode chainRoot, String symbol, Integer targetDte) {
 
         // TODO: Step 1 — read the spot price from chainRoot ("underlyingPrice")
         double spotPrice = chainRoot.get("underlyingPrice").asDouble();
@@ -109,6 +109,13 @@ public class GexService {
                 double strike = Double.parseDouble(strikeEntry.getKey()); // "510.0" → 510.0
                 JsonNode contract = strikeEntry.getValue().get(0); // always an array, grab [0]
 
+                if (targetDte != null) {
+                    int daysToExpiration = contract.path("daysToExpiration").asInt(-1);
+                    if (daysToExpiration != targetDte) {
+                        continue; // Skip contracts that don't match the requested DTE
+                    }
+                }
+
                 double gamma = contract.path("gamma").asDouble(0);
                 double oi = contract.path("openInterest").asDouble(0);
                 double callGex = gamma * oi * 100 * spotPrice * spotPrice * 0.01;
@@ -130,6 +137,13 @@ public class GexService {
 
                 double strike = Double.parseDouble(strikeEntry.getKey());
                 JsonNode contract = strikeEntry.getValue().get(0);
+
+                if (targetDte != null) {
+                    int daysToExpiration = contract.path("daysToExpiration").asInt(-1);
+                    if (daysToExpiration != targetDte) {
+                        continue; // Skip contracts that don't match the requested DTE
+                    }
+                }
 
                 double gamma = contract.path("gamma").asDouble(0);
                 double oi = contract.path("openInterest").asDouble(0);
