@@ -5,12 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 import com.dealaggregator.dealapi.entity.GexSnapshot;
 import com.dealaggregator.dealapi.repository.GexSnapshotRepository;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 
 import java.util.*;
 
@@ -102,8 +102,14 @@ public class GexService {
         }
     }
 
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(cron = "0 * 9-16 * * MON-FRI", zone = "America/New_York")
     public void recordSpxSnapshot() {
+        // Precise market hour check: 9:30 AM - 4:00 PM EST
+        LocalTime now = LocalTime.now(ZoneId.of("America/New_York"));
+        if (now.isBefore(LocalTime.of(9, 30)) || now.isAfter(LocalTime.of(16, 0))) {
+            return;
+        }
+
         Optional<JsonNode> chainOpt = schwabService.getFullOptionChain("SPX");
         if (chainOpt.isEmpty()) {
             logger.warn("Failed to retrieve SPX option chain for snapshot.");
