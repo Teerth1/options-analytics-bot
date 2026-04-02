@@ -11,6 +11,10 @@ import com.dealaggregator.dealapi.entity.StrategyType;
 import com.dealaggregator.dealapi.entity.Leg;
 import com.dealaggregator.dealapi.entity.CommandLog;
 import com.dealaggregator.dealapi.repository.CommandLogRepository;
+import com.dealaggregator.dealapi.entity.GexSnapshot;
+import com.dealaggregator.dealapi.repository.GexSnapshotRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalTime;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,6 +81,8 @@ public class DiscordBotService extends ListenerAdapter {
 
     private final GexService gexService;
     private final GexChartGenerator gexChartGenerator;
+    private final GexSnapshotRepository gexSnapshotRepository;
+    private final ObjectMapper objectMapper;
 
     /**
      * Constructor for DiscordBotService with dependency injection.
@@ -86,7 +92,8 @@ public class DiscordBotService extends ListenerAdapter {
             StrategyService strategyService, CommandLogRepository commandLogRepo,
             IndicatorService indicatorService, SchwabApiService schwabService,
             MarketCalendarService marketCalendarService, GexService gexService,
-            GexChartGenerator gexChartGenerator) { // NEW parameter
+            GexChartGenerator gexChartGenerator, GexSnapshotRepository gexSnapshotRepository,
+            ObjectMapper objectMapper) { 
         this.bsService = bsService;
         this.parserService = parserService;
         this.marketService = marketDataService;
@@ -95,9 +102,11 @@ public class DiscordBotService extends ListenerAdapter {
         this.commandLogRepo = commandLogRepo;
         this.indicatorService = indicatorService;
         this.schwabService = schwabService;
-        this.marketCalendarService = marketCalendarService; // NEW assignment
+        this.marketCalendarService = marketCalendarService; 
         this.gexService = gexService;
         this.gexChartGenerator = gexChartGenerator;
+        this.gexSnapshotRepository = gexSnapshotRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -193,6 +202,9 @@ public class DiscordBotService extends ListenerAdapter {
                         .addOption(OptionType.STRING, "layout", "H or V (optional)", false)
                         .addOption(OptionType.INTEGER, "dte", "Target DTE (e.g. 0 for 0DTE, optional)", false),
 
+                Commands.slash("intraday", "Show Intraday GEX Heatmap")
+                        .addOption(OptionType.STRING, "ticker", "Symbol (e.g. SPY, SPX)", true),
+
                 // 13. Iron Condor Command - 4 strikes
                 // Example: /ic open SPX 6700 6750 6850 6900 0 2.50
                 Commands.slash("ic", "Open an iron condor (4 strikes)")
@@ -282,6 +294,8 @@ public class DiscordBotService extends ListenerAdapter {
             flySlash(event);
         } else if (event.getName().equals("gex")) {
             gexSlash(event);
+        } else if (event.getName().equals("intraday")) {
+            intradaySlash(event);
         }
     }
 
@@ -537,6 +551,46 @@ public class DiscordBotService extends ListenerAdapter {
 
         } catch (Exception e) {
             logger.error("Error in /gex command for {}", ticker, e);
+            event.getHook().sendMessage("❌ Unexpected error: " + e.getMessage()).queue();
+        }
+    }
+
+    private void intradaySlash(SlashCommandInteractionEvent event) {
+        String ticker = event.getOption("ticker").getAsString().toUpperCase();
+        event.deferReply().queue();
+
+        try {
+            LocalDate today = LocalDate.now();
+            LocalDateTime startOfDay = today.atStartOfDay();
+            LocalDateTime endOfDay = today.atTime(LocalTime.MAX);
+
+            java.util.List<GexSnapshot> history = gexSnapshotRepository
+                .findByTickerAndTimestampBetweenOrderByTimestampAsc(ticker, startOfDay, endOfDay);
+
+            if (history == null || history.isEmpty()) {
+                event.getHook().sendMessage("❌ No intraday GEX data available for " + ticker + " yet today.").queue();
+                return;
+            }
+
+            byte[] imageBytes = gexChartGenerator.generateIntradayHeatmap(history, objectMapper);
+            
+            if (imageBytes != null) {
+                net.dv8tion.jda.api.utils.FileUpload file = net.dv8tion.jda.api.utils.FileUpload.fromData(imageBytes, "intraday_" + ticker + ".png");
+                
+                net.dv8tion.jda.api.EmbedBuilder eb = new net.dv8tion.jda.api.EmbedBuilder();
+                eb.setColor(java.awt.Color.decode("#111111"));
+                eb.setTitle(ticker + " Intraday GEX Heatmap");
+                eb.setDescription(history.size() + " snapshots tracked today.");
+                eb.setImage("attachment://intraday_" + ticker + ".png");
+                eb.setFooter("Powered by DealAggregator Analytics");
+                
+                event.getHook().sendMessageEmbeds(eb.build()).addFiles(file).queue();
+            } else {
+                event.getHook().sendMessage("❌ Failed to generate intraday heatmap.").queue();
+            }
+
+        } catch (Exception e) {
+            logger.error("Error in /intraday command for {}", ticker, e);
             event.getHook().sendMessage("❌ Unexpected error: " + e.getMessage()).queue();
         }
     }

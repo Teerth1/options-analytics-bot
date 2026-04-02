@@ -45,16 +45,77 @@ public class BlackScholesService {
     }
 
     /**
-     * Calculates the cumulative distribution function (CDF) of the standard normal distribution.
-     *
-     * Uses the error function to compute N(x), the probability that a standard
-     * normal random variable is less than or equal to x.
-     *
-     * @param x Value to evaluate CDF at
-     * @return Probability value between 0 and 1
+     * Standard Normal Probability Density Function (PDF), denoted as N'(x)
+     */
+    private double standardNormalPdf(double x) {
+        return Math.exp(-0.5 * x * x) / Math.sqrt(2.0 * Math.PI);
+    }
+
+    /**
+     * Standard Normal Cumulative Distribution Function (CDF), denoted as N(x)
      */
     private double cumulativeDistribution(double x) {
         return 0.5 * (1.0 + erf(x / Math.sqrt(2.0)));
+    }
+
+    // --- Core d1 and d2 calculations ---
+    public double calculateD1(double s, double k, double t, double v, double r) {
+        if (t <= 0 || v <= 0) return 0.0;
+        return (Math.log(s / k) + (r + 0.5 * Math.pow(v, 2)) * t) / (v * Math.sqrt(t));
+    }
+
+    public double calculateD2(double s, double k, double t, double v, double r) {
+        if (t <= 0 || v <= 0) return 0.0;
+        return calculateD1(s, k, t, v, r) - v * Math.sqrt(t);
+    }
+    
+    // --- Greek Calculations ---
+
+    public double calculateDelta(double s, double k, double t, double v, double r, String optionType) {
+        if (t <= 0) return ("call".equalsIgnoreCase(optionType) && s > k) ? 1.0 : (("put".equalsIgnoreCase(optionType) && s < k) ? -1.0 : 0.0);
+        double d1 = calculateD1(s, k, t, v, r);
+        if ("call".equalsIgnoreCase(optionType)) {
+            return cumulativeDistribution(d1);
+        } else {
+            return cumulativeDistribution(d1) - 1.0;
+        }
+    }
+
+    /**
+     * Vanna = dDelta / dVol. Measures the change in Delta per 1% change in implied volatility.
+     */
+    public double calculateVanna(double s, double k, double t, double v, double r) {
+        if (t <= 0 || v <= 0) return 0.0;
+        double d1 = calculateD1(s, k, t, v, r);
+        double d2 = calculateD2(s, k, t, v, r);
+        // Vanna is the same for Call and Put
+        // Vanna = - N'(d1) * d2 / sigma
+        return -standardNormalPdf(d1) * d2 / v;
+    }
+
+    /**
+     * Charm = dDelta / dt (sometimes called Delta Decay). Measures the change in Delta per day.
+     * Returned as daily charm (per 1 calendar day).
+     */
+    public double calculateCharm(double s, double k, double t, double v, double r, String optionType) {
+        if (t <= 0 || v <= 0) return 0.0;
+        double d1 = calculateD1(s, k, t, v, r);
+        double d2 = calculateD2(s, k, t, v, r);
+        
+        double nPrimeD1 = standardNormalPdf(d1);
+        
+        if ("call".equalsIgnoreCase(optionType)) {
+            double charm = -nPrimeD1 * ( (r / (v * Math.sqrt(t))) - (d2 / (2 * t)) );
+            // Convert to daily by dividing by 365
+            return charm / 365.0;
+        } else {
+            double charm = -nPrimeD1 * ( (r / (v * Math.sqrt(t))) - (d2 / (2 * t)) );
+            return charm / 365.0; // Wait, put charm has a different formulation if r != 0, but for approx it's fine.
+            // Let's use the exact one: Delta_put = N(d1) - 1. The derivative with respect to T is the same as call.
+            // d(N(d1) - 1) / dt = dN(d1) / dt. So Charm is identical for non-dividend-paying call and put if r=0.
+            // But if r != 0, typically Delta_call = e^-qT N(d1). Since we assume q=0, d1 has r. 
+            // So Charm_put = Charm_call.
+        }
     }
 
     /**

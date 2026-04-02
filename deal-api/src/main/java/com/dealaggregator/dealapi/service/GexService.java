@@ -1,9 +1,16 @@
 package com.dealaggregator.dealapi.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+import com.dealaggregator.dealapi.entity.GexSnapshot;
+import com.dealaggregator.dealapi.repository.GexSnapshotRepository;
+import java.time.LocalDateTime;
 
 import java.util.*;
 
@@ -25,6 +32,21 @@ public class GexService {
 
     private static final Logger logger = LoggerFactory.getLogger(GexService.class);
 
+    private final SchwabApiService schwabService;
+    private final GexSnapshotRepository snapshotRepository;
+    private final ObjectMapper objectMapper;
+    private final BlackScholesService blackScholesService;
+
+    public GexService(SchwabApiService schwabService, 
+                      GexSnapshotRepository snapshotRepository, 
+                      ObjectMapper objectMapper,
+                      BlackScholesService blackScholesService) {
+        this.schwabService = schwabService;
+        this.snapshotRepository = snapshotRepository;
+        this.objectMapper = objectMapper;
+        this.blackScholesService = blackScholesService;
+    }
+
     // -------------------------------------------------------------------------
     // Data Classes — represent one row in the GEX ladder and the full result
     // -------------------------------------------------------------------------
@@ -34,13 +56,27 @@ public class GexService {
         public double callGex;
         public double putGex;
         public double netGex;
+        
+        // Institutional Greeks
+        public double callVanna;
+        public double putVanna;
+        public double callCharm;
+        public double putCharm;
+
         public String label; // e.g. "CALL WALL", "PUT WALL", "ZERO FLIP"
 
-        public GexRow(double strike, double callGex, double putGex) {
+        // Default constructor for Jackson
+        public GexRow() {}
+
+        public GexRow(double strike, double callGex, double putGex, double callVanna, double putVanna, double callCharm, double putCharm) {
             this.strike = strike;
             this.callGex = callGex;
             this.putGex = putGex;
             this.netGex = callGex + putGex;
+            this.callVanna = callVanna;
+            this.putVanna = putVanna;
+            this.callCharm = callCharm;
+            this.putCharm = putCharm;
         }
     }
 
@@ -66,6 +102,40 @@ public class GexService {
         }
     }
 
+    @Scheduled(fixedRate = 60000)
+    public void recordSpxSnapshot() {
+        Optional<JsonNode> chainOpt = schwabService.getFullOptionChain("SPX");
+        if (chainOpt.isEmpty()) {
+            logger.warn("Failed to retrieve SPX option chain for snapshot.");
+            return;
+        }
+
+        Optional<GexResult> gexResultOpt = calculateGex(chainOpt.get(), "SPX", null);
+        if (gexResultOpt.isEmpty()) {
+            logger.warn("Failed to calculate GEX for SPX snapshot.");
+            return;
+        }
+
+        GexResult result = gexResultOpt.get();
+
+        GexSnapshot snapshot = new GexSnapshot();
+        snapshot.setTicker("SPX");
+        snapshot.setTimestamp(LocalDateTime.now());
+        snapshot.setSpotPrice(result.spotPrice);
+        snapshot.setCallWall(result.callWall);
+        snapshot.setPutWall(result.putWall);
+        snapshot.setZeroGamma(result.zeroFlip);
+        
+        try {
+            snapshot.setStrikeDataJson(objectMapper.writeValueAsString(result.rows));
+        } catch (Exception e) {
+            logger.error("Failed to serialize GEX rows into JSON", e);
+            snapshot.setStrikeDataJson("[]");
+        }
+        
+        snapshotRepository.save(snapshot);
+        logger.info("Saved SPX GEX snapshot at spot {}", result.spotPrice);
+    }
     // -------------------------------------------------------------------------
     // Main method — call this from DiscordBotService
     // -------------------------------------------------------------------------
@@ -92,67 +162,15 @@ public class GexService {
 
         // TODO: Step 2 — loop over callExpDateMap, then putExpDateMap
         // For each expiration key → for each strike key → grab contract at [0]
-        // Apply the GEX formula and accumulate into a Map<Double, double[]>
-        // where double[0] = callGexSum, double[1] = putGexSum
+        // Accumulate into a Map<Double, double[]>
+        // double[0]=callGex, [1]=putGex, [2]=callVanna, [3]=putVanna, [4]=callCharm, [5]=putCharm
         TreeMap<Double, double[]> gexMap = new TreeMap<>();
-        // --- Call Loop ---
-        Iterator<Map.Entry<String, JsonNode>> expirations = chainRoot.get("callExpDateMap").fields();
-
-        while (expirations.hasNext()) {
-            JsonNode strikesForThisExpiry = expirations.next().getValue();
-
-            Iterator<Map.Entry<String, JsonNode>> strikes = strikesForThisExpiry.fields();
-
-            while (strikes.hasNext()) {
-                Map.Entry<String, JsonNode> strikeEntry = strikes.next();
-
-                double strike = Double.parseDouble(strikeEntry.getKey()); // "510.0" → 510.0
-                JsonNode contract = strikeEntry.getValue().get(0); // always an array, grab [0]
-
-                if (targetDte != null) {
-                    int daysToExpiration = contract.path("daysToExpiration").asInt(-1);
-                    if (daysToExpiration != targetDte) {
-                        continue; // Skip contracts that don't match the requested DTE
-                    }
-                }
-
-                double gamma = contract.path("gamma").asDouble(0);
-                double oi = contract.path("openInterest").asDouble(0);
-                double callGex = gamma * oi * 100 * spotPrice * spotPrice * 0.01;
-
-                gexMap.computeIfAbsent(strike, k -> new double[] { 0, 0 });
-                gexMap.get(strike)[0] += callGex; // [0] = call side
-            }
-        }
-
-        // --- Put Loop ---
-        Iterator<Map.Entry<String, JsonNode>> putExpirations = chainRoot.get("putExpDateMap").fields();
-
-        while (putExpirations.hasNext()) {
-            JsonNode strikesForThisExpiry = putExpirations.next().getValue();
-            Iterator<Map.Entry<String, JsonNode>> strikes = strikesForThisExpiry.fields();
-
-            while (strikes.hasNext()) {
-                Map.Entry<String, JsonNode> strikeEntry = strikes.next();
-
-                double strike = Double.parseDouble(strikeEntry.getKey());
-                JsonNode contract = strikeEntry.getValue().get(0);
-
-                if (targetDte != null) {
-                    int daysToExpiration = contract.path("daysToExpiration").asInt(-1);
-                    if (daysToExpiration != targetDte) {
-                        continue; // Skip contracts that don't match the requested DTE
-                    }
-                }
-
-                double gamma = contract.path("gamma").asDouble(0);
-                double oi = contract.path("openInterest").asDouble(0);
-                double putGex = -gamma * oi * 100 * spotPrice * spotPrice * 0.01; // negative sign!
-
-                gexMap.computeIfAbsent(strike, k -> new double[] { 0, 0 });
-                gexMap.get(strike)[1] += putGex; // [1] = put side
-            }
-        }
+        
+        // Process Calls
+        processOptionMap(chainRoot.get("callExpDateMap"), gexMap, spotPrice, targetDte, true);
+        
+        // Process Puts
+        processOptionMap(chainRoot.get("putExpDateMap"), gexMap, spotPrice, targetDte, false);
 
         // TODO: Step 3 — convert the map into a List <GexRow> sorted high → low strike
         List<GexRow> rows = new ArrayList<>();
@@ -161,7 +179,11 @@ public class GexService {
             double strike = entry.getKey();
             double callGex = entry.getValue()[0];
             double putGex = entry.getValue()[1];
-            rows.add(new GexRow(strike, callGex, putGex));
+            double callVanna = entry.getValue()[2];
+            double putVanna = entry.getValue()[3];
+            double callCharm = entry.getValue()[4];
+            double putCharm = entry.getValue()[5];
+            rows.add(new GexRow(strike, callGex, putGex, callVanna, putVanna, callCharm, putCharm));
         }
 
         // TODO: Step 4 — find the three milestones:
@@ -190,7 +212,8 @@ public class GexService {
         GexRow zeroFlipRow = null;
         boolean passedSpot = false;
         for (GexRow row : rows) {
-            if (row.strike <= spotPrice) passedSpot = true;
+            if (row.strike <= spotPrice)
+                passedSpot = true;
             if (passedSpot && row.netGex < 0) {
                 zeroFlipRow = row;
                 break;
@@ -208,5 +231,58 @@ public class GexService {
                 zeroFlipRow != null ? zeroFlipRow.strike : Double.NaN,
                 zeroFlipRow != null // false if no flip found
         ));
+    }
+
+    private void processOptionMap(com.fasterxml.jackson.databind.JsonNode optionMapPart, java.util.TreeMap<Double, double[]> gexMap, 
+                                  double spotPrice, Integer targetDte, boolean isCall) {
+        if (optionMapPart == null) return;
+        java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> expirations = optionMapPart.fields();
+
+        while (expirations.hasNext()) {
+            com.fasterxml.jackson.databind.JsonNode strikesForThisExpiry = expirations.next().getValue();
+            java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> strikes = strikesForThisExpiry.fields();
+
+            while (strikes.hasNext()) {
+                java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> strikeEntry = strikes.next();
+                double strike = Double.parseDouble(strikeEntry.getKey());
+                com.fasterxml.jackson.databind.JsonNode contract = strikeEntry.getValue().get(0);
+
+                int daysToExpiration = contract.path("daysToExpiration").asInt(0);
+                if (targetDte != null && daysToExpiration != targetDte) {
+                    continue; // Skip contracts that don't match the requested DTE
+                }
+
+                double gamma = contract.path("gamma").asDouble(0);
+                double oi = contract.path("openInterest").asDouble(0);
+                double iv = contract.path("volatility").asDouble(0.01);
+                
+                if (iv > 10) iv = iv / 100.0;
+                if (iv <= 0) iv = 0.01;
+                
+                double t = Math.max(1, daysToExpiration) / 365.0; 
+                double r = 0.05; 
+                
+                double rawVanna = blackScholesService.calculateVanna(spotPrice, strike, t, iv, r);
+                double rawCharm = blackScholesService.calculateCharm(spotPrice, strike, t, iv, r, isCall ? "call" : "put");
+                
+                double gex = gamma * oi * 100 * spotPrice * spotPrice * 0.01;
+                if (!isCall) gex = -gex; // Short Gamma for Puts
+                
+                double vanna = rawVanna * oi * 100 * spotPrice * 0.01; 
+                double charm = rawCharm * oi * 100 * spotPrice;
+
+                gexMap.computeIfAbsent(strike, k -> new double[6]);
+                
+                if (isCall) {
+                    gexMap.get(strike)[0] += gex;
+                    gexMap.get(strike)[2] += vanna;
+                    gexMap.get(strike)[4] += charm;
+                } else {
+                    gexMap.get(strike)[1] += gex;
+                    gexMap.get(strike)[3] += vanna;
+                    gexMap.get(strike)[5] += charm;
+                }
+            }
+        }
     }
 }
