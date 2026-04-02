@@ -2,6 +2,9 @@ package com.dealaggregator.dealapi.service;
 
 import com.dealaggregator.dealapi.service.GexService.GexResult;
 import com.dealaggregator.dealapi.service.GexService.GexRow;
+import com.dealaggregator.dealapi.entity.GexSnapshot;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -220,6 +223,122 @@ public class GexChartGenerator {
             return baos.toByteArray();
 
         } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public byte[] generateIntradayHeatmap(java.util.List<GexSnapshot> history, ObjectMapper objectMapper) {
+        if (history == null || history.isEmpty()) return null;
+        try {
+            int numSnapshots = history.size();
+            int cellWidth = 4;
+            int cellHeight = 4;
+            
+            // Determine strike range from the first snapshot
+            GexSnapshot first = history.get(0);
+            double baseSpot = first.getSpotPrice();
+            double minStrike = baseSpot * 0.97; // +/- 3%
+            double maxStrike = baseSpot * 1.03;
+            
+            // Get all unique strikes in that range
+            java.util.List<Double> yStrikes = new java.util.ArrayList<>();
+            for (double s = Math.floor(minStrike); s <= Math.ceil(maxStrike); s += 5.0) {
+                yStrikes.add(s);
+            }
+            java.util.Collections.reverse(yStrikes); // High strikes at the top
+            
+            int width = Math.max(800, PADDING * 2 + (numSnapshots * cellWidth));
+            int height = PADDING * 2 + (yStrikes.size() * cellHeight);
+
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2 = image.createGraphics();
+
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(BG_COLOR);
+            g2.fillRect(0, 0, width, height);
+            
+            double globalMaxGex = 0;
+
+            // 1. Parse all snapshots AND find global max Gex for coloring
+            java.util.List<java.util.List<GexRow>> allRows = new java.util.ArrayList<>();
+            for (GexSnapshot snap : history) {
+                java.util.List<GexRow> rows = objectMapper.readValue(snap.getStrikeDataJson(), new TypeReference<java.util.List<GexRow>>(){});
+                allRows.add(rows);
+                for (GexRow r : rows) {
+                    if (r.strike >= minStrike && r.strike <= maxStrike) {
+                        globalMaxGex = Math.max(globalMaxGex, Math.abs(r.netGex));
+                    }
+                }
+            }
+            
+            if (globalMaxGex == 0) globalMaxGex = 1;
+
+            // 2. Plot the Heatmap
+            for (int col = 0; col < numSnapshots; col++) {
+                int x = PADDING + (col * cellWidth);
+                java.util.List<GexRow> rows = allRows.get(col);
+                
+                // Map rows for quick lookup
+                java.util.Map<Double, Double> strikeToGex = new java.util.HashMap<>();
+                for (GexRow r : rows) strikeToGex.put(r.strike, r.netGex);
+                
+                for (int rowIdx = 0; rowIdx < yStrikes.size(); rowIdx++) {
+                    double currentStrike = yStrikes.get(rowIdx);
+                    int y = PADDING + (rowIdx * cellHeight);
+                    
+                    double netGex = strikeToGex.getOrDefault(currentStrike, 0.0);
+                    
+                    // Determine Color intensity (0.0 to 1.0)
+                    float intensity = (float) Math.min(1.0, Math.abs(netGex) / globalMaxGex);
+                    intensity = (float) Math.pow(intensity, 0.4); // gamma correction for better visibility
+                    
+                    if (netGex > 0) {
+                        // Call GEX (Purple/Blue gradient)
+                        g2.setColor(new Color(138/255f * intensity, 43/255f * intensity, 226/255f * intensity));
+                    } else if (netGex < 0) {
+                        // Put GEX (Orange/Red gradient)
+                        g2.setColor(new Color(255/255f * intensity, 140/255f * intensity, 0/255f * intensity));
+                    } else {
+                        g2.setColor(BG_COLOR);
+                    }
+                    g2.fillRect(x, y, cellWidth, cellHeight);
+                }
+                
+                // Draw Spot Price
+                double spot = history.get(col).getSpotPrice();
+                if (spot >= minStrike && spot <= maxStrike) {
+                    double percentY = (maxStrike - spot) / (maxStrike - minStrike);
+                    int spotY = PADDING + (int) (percentY * (yStrikes.size() * cellHeight));
+                    g2.setColor(Color.WHITE);
+                    g2.fillRect(x, spotY, cellWidth, 2);
+                }
+                
+                // Draw time marker every 30 snapshots
+                if (col % 30 == 0) {
+                    g2.setColor(GRID_COLOR);
+                    g2.drawLine(x, PADDING, x, height - PADDING);
+                }
+            }
+
+            // Draw Y-axis labels
+            g2.setColor(TEXT_COLOR);
+            g2.setFont(new Font("Consolas", Font.PLAIN, 10));
+            int yTicks = 10;
+            for (int i = 0; i <= yTicks; i++) {
+                int idx = i * (yStrikes.size() - 1) / yTicks;
+                double strike = yStrikes.get(idx);
+                int yPos = PADDING + (idx * cellHeight);
+                g2.drawString(String.format("%.0f", strike), PADDING / 4, yPos + 4);
+                g2.drawString(String.format("%.0f", strike), width - (int)(PADDING * 0.8), yPos + 4);
+            }
+
+            g2.dispose();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", baos);
+            return baos.toByteArray();
+
+        } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
