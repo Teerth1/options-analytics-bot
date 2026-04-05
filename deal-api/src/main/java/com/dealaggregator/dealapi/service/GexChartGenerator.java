@@ -33,6 +33,8 @@ public class GexChartGenerator {
     private static final Color CALL_GEX_COLOR = new Color(138, 43, 226); 
     private static final Color PUT_GEX_COLOR = new Color(255, 140, 0);   
     private static final Color SPOT_LINE_COLOR = new Color(0, 191, 255); 
+    private static final Color VANNA_COLOR = new Color(0, 255, 127); // Spring Green
+    private static final Color CHARM_COLOR = new Color(255, 50, 50); // Bright Red
 
     /**
      * Entry method. Routes to either horizontal or vertical renderer.
@@ -89,6 +91,27 @@ public class GexChartGenerator {
 
             double pixelsPerGex = (double)(centerY - MARGIN_TOP) / maxGexAbs;
 
+            double maxVannaCharmAbs = 0;
+            for (GexRow row : filteredRows) {
+                double netVanna = row.callVanna + row.putVanna;
+                double netCharm = row.callCharm + row.putCharm;
+                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netVanna));
+                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netCharm));
+            }
+            maxVannaCharmAbs = Math.max(1.0, maxVannaCharmAbs * 1.1);
+            double pixelsPerVannaCharm = (double)(centerY - MARGIN_TOP) / maxVannaCharmAbs;
+            
+            // Legend
+            g2.setColor(VANNA_COLOR);
+            g2.fillOval(width - 100, 20, 8, 8);
+            g2.setColor(TEXT_COLOR);
+            g2.drawString("Vanna", width - 85, 28);
+            
+            g2.setColor(CHARM_COLOR);
+            g2.fillOval(width - 100, 40, 8, 8);
+            g2.setColor(TEXT_COLOR);
+            g2.drawString("Charm", width - 85, 48);
+
             GexRow closestRow = null;
             double minDist = Double.MAX_VALUE;
             for (GexRow r : filteredRows) {
@@ -113,6 +136,19 @@ public class GexChartGenerator {
                     g2.setColor(PUT_GEX_COLOR);
                     g2.fillRect(barX, centerY, barWidth, barHeight);
                 }
+
+                // Draw Vanna & Charm Dots
+                double netVanna = row.callVanna + row.putVanna;
+                double netCharm = row.callCharm + row.putCharm;
+                
+                int vannaY = centerY - (int)(netVanna * pixelsPerVannaCharm);
+                int charmY = centerY - (int)(netCharm * pixelsPerVannaCharm);
+                
+                g2.setColor(VANNA_COLOR);
+                g2.fillOval(barX + barWidth / 2 - 3, vannaY - 3, 6, 6);
+                
+                g2.setColor(CHARM_COLOR);
+                g2.fillOval(barX + barWidth / 2 - 3, charmY - 3, 6, 6);
 
                 // Draw strike label rotated vertically
                 g2.setColor(TEXT_COLOR);
@@ -181,6 +217,27 @@ public class GexChartGenerator {
 
             double pixelsPerGex = (centerX - PADDING) / maxGexAbs;
 
+            double maxVannaCharmAbs = 0;
+            for (GexRow row : filteredRows) {
+                double netVanna = row.callVanna + row.putVanna;
+                double netCharm = row.callCharm + row.putCharm;
+                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netVanna));
+                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netCharm));
+            }
+            maxVannaCharmAbs = Math.max(1.0, maxVannaCharmAbs * 1.1);
+            double pixelsPerVannaCharm = (centerX - PADDING) / maxVannaCharmAbs;
+            
+            // Legend
+            g2.setColor(VANNA_COLOR);
+            g2.fillOval(WIDTH - PADDING - 80, 20, 8, 8);
+            g2.setColor(TEXT_COLOR);
+            g2.drawString("Vanna", WIDTH - PADDING - 65, 28);
+            
+            g2.setColor(CHARM_COLOR);
+            g2.fillOval(WIDTH - PADDING - 80, 40, 8, 8);
+            g2.setColor(TEXT_COLOR);
+            g2.drawString("Charm", WIDTH - PADDING - 65, 48);
+
             GexRow closestRow = null;
             double minDist = Double.MAX_VALUE;
             for (GexRow r : filteredRows) {
@@ -204,6 +261,19 @@ public class GexChartGenerator {
                     g2.setColor(PUT_GEX_COLOR);
                     g2.fillRect(centerX - barWidth, barY, barWidth, barHeight);
                 }
+
+                // Draw Vanna & Charm Dots
+                double netVanna = row.callVanna + row.putVanna;
+                double netCharm = row.callCharm + row.putCharm;
+                
+                int vannaX = centerX + (int)(netVanna * pixelsPerVannaCharm);
+                int charmX = centerX + (int)(netCharm * pixelsPerVannaCharm);
+                
+                g2.setColor(VANNA_COLOR);
+                g2.fillOval(vannaX - 3, barY + barHeight / 2 - 3, 6, 6);
+                
+                g2.setColor(CHARM_COLOR);
+                g2.fillOval(charmX - 3, barY + barHeight / 2 - 3, 6, 6);
 
                 g2.setColor(TEXT_COLOR);
                 g2.drawString(String.format("%.0f", row.strike), PADDING / 2, y + 14);
