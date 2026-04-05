@@ -180,7 +180,8 @@ public class SchwabApiService {
         String redirectUri = appBaseUrl + "/auth/schwab/callback";
         return "https://api.schwabapi.com/v1/oauth/authorize?" +
                 "client_id=" + clientId.trim() +
-                "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8);
+                "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8) +
+                "&response_type=code";
     }
 
     /**
