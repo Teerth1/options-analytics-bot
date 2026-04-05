@@ -1492,6 +1492,28 @@ public class DiscordBotService extends ListenerAdapter {
         if (message.toLowerCase().startsWith("!gex")) {
             handleGexCommand(event, message);
         }
+
+        if (message.toLowerCase().startsWith("!skew")) {
+            handleSkewCommand(event, message);
+        }
+    }
+
+    public void handleSkewCommand(MessageReceivedEvent event, String message) {
+        String[] parts = message.split("\\s+");
+        int daysBack = 0;
+
+        if (parts.length >= 2) {
+            try {
+                daysBack = Integer.parseInt(parts[1]);
+
+            } catch (NumberFormatException e) {
+                event.getChannel().sendMessage("Invalid DTE. Usage: `!skew <dte>` (e.g. `!skew 0`)").queue();
+                return;
+            }
+        } else {
+            daysBack = 30;
+        }
+    }
     }
 
     /**

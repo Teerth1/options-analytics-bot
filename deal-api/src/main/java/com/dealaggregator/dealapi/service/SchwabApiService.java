@@ -45,6 +45,9 @@ public class SchwabApiService {
     @Value("${schwab.refresh.token:}")
     private String refreshToken;
 
+    @Value("${app.base.url:https://deal-aggregator-production.up.railway.app}")
+    private String appBaseUrl;
+
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
@@ -167,6 +170,66 @@ public class SchwabApiService {
             logger.error("Error refreshing Schwab token", e);
             accessToken = null;
             return null;
+        }
+    }
+
+    /**
+     * Generates the Schwab authorization URL for the user to log in.
+     */
+    public String getAuthorizationUrl() {
+        String redirectUri = appBaseUrl + "/auth/schwab/callback";
+        return "https://api.schwabapi.com/v1/oauth/authorize?" +
+                "client_id=" + clientId.trim() +
+                "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Exchanges the authorization code for initial tokens.
+     * This is the "7-day" manual re-auth flow made automatic.
+     */
+    public boolean exchangeCodeForTokens(String code) {
+        try {
+            String safeClientId = clientId.trim();
+            String safeClientSecret = clientSecret.trim();
+            String redirectUri = appBaseUrl + "/auth/schwab/callback";
+
+            String auth = Base64.getEncoder().encodeToString(
+                    (safeClientId + ":" + safeClientSecret).getBytes(StandardCharsets.UTF_8));
+
+            String body = "grant_type=authorization_code" +
+                    "&code=" + URLEncoder.encode(code, StandardCharsets.UTF_8) +
+                    "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(TOKEN_URL))
+                    .header("Authorization", "Basic " + auth)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<java.io.InputStream> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() == 200) {
+                String responseBody = getResponseBody(response);
+                JsonNode json = objectMapper.readTree(responseBody);
+
+                this.accessToken = json.get("access_token").asText();
+                this.refreshToken = json.get("refresh_token").asText();
+                int expiresIn = json.get("expires_in").asInt();
+                this.tokenExpiresAt = System.currentTimeMillis() + (expiresIn - 60) * 1000L;
+
+                persistTokens();
+                logger.info("✅ Full Schwab re-authorization successful!");
+                return true;
+            } else {
+                String errorBody = getResponseBody(response);
+                logger.error("Failed to exchange Schwab code. Status: {}. Response: {}", response.statusCode(), errorBody);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("Error exchanging Schwab code", e);
+            return false;
         }
     }
 
