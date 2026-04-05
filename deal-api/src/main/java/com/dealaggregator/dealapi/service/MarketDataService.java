@@ -46,4 +46,22 @@ public class MarketDataService {
 
     }
 
+    public static class HistoricalDataPoint {
+        private String date;
+        private double closePrice;
+
+        public HistoricalDataPoint(String data, double closePrice) {
+            this.date = data;
+            this.closePrice = closePrice;
+        }
+
+        public String getDate() {
+            return date;
+        }
+
+        public double getClosePrice() {
+            return closePrice;
+        }
+    }
+
 }
