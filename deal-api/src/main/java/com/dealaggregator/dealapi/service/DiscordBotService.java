@@ -1514,7 +1514,6 @@ public class DiscordBotService extends ListenerAdapter {
             daysBack = 30;
         }
     }
-    }
 
     /**
      * Handle !strad <dte> command
