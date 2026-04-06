@@ -274,8 +274,10 @@ public class GexService {
                 double gex = gamma * oi * 100 * spotPrice * spotPrice * 0.01;
                 if (!isCall) gex = -gex; // Short Gamma for Puts
                 
-                double vanna = rawVanna * oi * 100 * spotPrice * 0.01; 
-                double charm = rawCharm * oi * 100 * spotPrice;
+                // Vanna Ex: Dollar impact of a total IV collapse
+                double vanna = rawVanna * oi * 100 * spotPrice * iv; 
+                // Charm Ex: Hourly dealer delta decay
+                double charm = (rawCharm / 24.0) * oi * 100 * spotPrice;
 
                 gexMap.computeIfAbsent(strike, k -> new double[6]);
                 

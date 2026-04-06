@@ -47,6 +47,18 @@ public class GexChartGenerator {
         }
     }
 
+    private String formatGex(double gex) {
+        if (Math.abs(gex) >= 1_000_000_000) {
+            return String.format("%+.2fB", gex / 1_000_000_000.0);
+        } else if (Math.abs(gex) >= 1_000_000) {
+            return String.format("%+.2fM", gex / 1_000_000.0);
+        } else if (Math.abs(gex) >= 1_000) {
+            return String.format("%+.2fK", gex / 1_000.0);
+        } else {
+            return String.format("%+.0f", gex);
+        }
+    }
+
     private byte[] generateHorizontalChart(GexResult result) {
         try {
             double range = result.spotPrice * 0.020;
@@ -91,15 +103,19 @@ public class GexChartGenerator {
 
             double pixelsPerGex = (double)(centerY - MARGIN_TOP) / maxGexAbs;
 
-            double maxVannaCharmAbs = 0;
+            double maxVannaAbs = 0;
+            double maxCharmAbs = 0;
             for (GexRow row : filteredRows) {
                 double netVanna = row.callVanna + row.putVanna;
                 double netCharm = row.callCharm + row.putCharm;
-                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netVanna));
-                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netCharm));
+                maxVannaAbs = Math.max(maxVannaAbs, Math.abs(netVanna));
+                maxCharmAbs = Math.max(maxCharmAbs, Math.abs(netCharm));
             }
-            maxVannaCharmAbs = Math.max(1.0, maxVannaCharmAbs * 1.1);
-            double pixelsPerVannaCharm = (double)(centerY - MARGIN_TOP) / maxVannaCharmAbs;
+            maxVannaAbs = Math.max(1.0, maxVannaAbs * 1.1);
+            maxCharmAbs = Math.max(1.0, maxCharmAbs * 1.1);
+            
+            double pixelsPerVanna = (double)(centerY - MARGIN_TOP) / maxVannaAbs;
+            double pixelsPerCharm = (double)(centerY - MARGIN_TOP) / maxCharmAbs;
             
             // Legend
             g2.setColor(VANNA_COLOR);
@@ -111,6 +127,18 @@ public class GexChartGenerator {
             g2.fillOval(width - 100, 40, 8, 8);
             g2.setColor(TEXT_COLOR);
             g2.drawString("Charm", width - 85, 48);
+
+            // Display Walls in Header
+            double cwGex = 0;
+            double pwGex = 0;
+            for (GexRow r : result.rows) {
+                if (r.strike == result.callWall) cwGex = r.netGex;
+                if (r.strike == result.putWall) pwGex = r.netGex;
+            }
+            g2.setColor(CALL_GEX_COLOR);
+            g2.drawString(String.format("Call Wall: %.0f (%s)", result.callWall, formatGex(cwGex)), PADDING, 20);
+            g2.setColor(PUT_GEX_COLOR);
+            g2.drawString(String.format("Put Wall: %.0f (%s)", result.putWall, formatGex(pwGex)), PADDING, 40);
 
             GexRow closestRow = null;
             double minDist = Double.MAX_VALUE;
@@ -141,8 +169,8 @@ public class GexChartGenerator {
                 double netVanna = row.callVanna + row.putVanna;
                 double netCharm = row.callCharm + row.putCharm;
                 
-                int vannaY = centerY - (int)(netVanna * pixelsPerVannaCharm);
-                int charmY = centerY - (int)(netCharm * pixelsPerVannaCharm);
+                int vannaY = centerY - (int)(netVanna * pixelsPerVanna);
+                int charmY = centerY - (int)(netCharm * pixelsPerCharm);
                 
                 g2.setColor(VANNA_COLOR);
                 g2.fillOval(barX + barWidth / 2 - 3, vannaY - 3, 6, 6);
@@ -164,6 +192,12 @@ public class GexChartGenerator {
                     g2.setColor(SPOT_LINE_COLOR);
                     g2.drawLine(x + COLUMN_WIDTH / 2, MARGIN_TOP, x + COLUMN_WIDTH / 2, height - MARGIN_BOTTOM + 20);
                     g2.drawString(String.format("SPOT: %.2f", result.spotPrice), x + 10, MARGIN_TOP - 10);
+                }
+                
+                if (result.hasZeroFlip && row.strike == result.zeroFlip) {
+                    g2.setColor(Color.YELLOW);
+                    g2.drawLine(x + COLUMN_WIDTH / 2, MARGIN_TOP, x + COLUMN_WIDTH / 2, height - MARGIN_BOTTOM + 20);
+                    g2.drawString("ZERO FLIP", x + 10, height - MARGIN_BOTTOM + 35);
                 }
 
                 x += COLUMN_WIDTH; 
@@ -217,15 +251,19 @@ public class GexChartGenerator {
 
             double pixelsPerGex = (centerX - PADDING) / maxGexAbs;
 
-            double maxVannaCharmAbs = 0;
+            double maxVannaAbs = 0;
+            double maxCharmAbs = 0;
             for (GexRow row : filteredRows) {
                 double netVanna = row.callVanna + row.putVanna;
                 double netCharm = row.callCharm + row.putCharm;
-                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netVanna));
-                maxVannaCharmAbs = Math.max(maxVannaCharmAbs, Math.abs(netCharm));
+                maxVannaAbs = Math.max(maxVannaAbs, Math.abs(netVanna));
+                maxCharmAbs = Math.max(maxCharmAbs, Math.abs(netCharm));
             }
-            maxVannaCharmAbs = Math.max(1.0, maxVannaCharmAbs * 1.1);
-            double pixelsPerVannaCharm = (centerX - PADDING) / maxVannaCharmAbs;
+            maxVannaAbs = Math.max(1.0, maxVannaAbs * 1.1);
+            maxCharmAbs = Math.max(1.0, maxCharmAbs * 1.1);
+            
+            double pixelsPerVanna = (centerX - PADDING) / maxVannaAbs;
+            double pixelsPerCharm = (centerX - PADDING) / maxCharmAbs;
             
             // Legend
             g2.setColor(VANNA_COLOR);
@@ -237,6 +275,18 @@ public class GexChartGenerator {
             g2.fillOval(WIDTH - PADDING - 80, 40, 8, 8);
             g2.setColor(TEXT_COLOR);
             g2.drawString("Charm", WIDTH - PADDING - 65, 48);
+
+            // Display Walls in Header
+            double v_cwGex = 0;
+            double v_pwGex = 0;
+            for (GexRow r : result.rows) {
+                if (r.strike == result.callWall) v_cwGex = r.netGex;
+                if (r.strike == result.putWall) v_pwGex = r.netGex;
+            }
+            g2.setColor(CALL_GEX_COLOR);
+            g2.drawString(String.format("Call Wall: %.0f (%s)", result.callWall, formatGex(v_cwGex)), PADDING, 20);
+            g2.setColor(PUT_GEX_COLOR);
+            g2.drawString(String.format("Put Wall: %.0f (%s)", result.putWall, formatGex(v_pwGex)), PADDING, 40);
 
             GexRow closestRow = null;
             double minDist = Double.MAX_VALUE;
@@ -266,8 +316,8 @@ public class GexChartGenerator {
                 double netVanna = row.callVanna + row.putVanna;
                 double netCharm = row.callCharm + row.putCharm;
                 
-                int vannaX = centerX + (int)(netVanna * pixelsPerVannaCharm);
-                int charmX = centerX + (int)(netCharm * pixelsPerVannaCharm);
+                int vannaX = centerX + (int)(netVanna * pixelsPerVanna);
+                int charmX = centerX + (int)(netCharm * pixelsPerCharm);
                 
                 g2.setColor(VANNA_COLOR);
                 g2.fillOval(vannaX - 3, barY + barHeight / 2 - 3, 6, 6);
@@ -282,6 +332,12 @@ public class GexChartGenerator {
                     g2.setColor(SPOT_LINE_COLOR);
                     g2.drawLine(PADDING, y + ROW_HEIGHT / 2, WIDTH - PADDING, y + ROW_HEIGHT / 2);
                     g2.drawString(String.format("SPOT: %.2f", result.spotPrice), WIDTH - PADDING * 3, y + 14);
+                }
+                
+                if (result.hasZeroFlip && row.strike == result.zeroFlip) {
+                    g2.setColor(Color.YELLOW);
+                    g2.drawLine(PADDING, y + ROW_HEIGHT / 2, WIDTH - PADDING, y + ROW_HEIGHT / 2);
+                    g2.drawString("ZERO FLIP", PADDING + 40, y + 14);
                 }
 
                 y += ROW_HEIGHT; 
