@@ -496,10 +496,13 @@ public class SchwabApiService {
         String symbol = toSchwabSymbol(ticker);
         try {
             String encodedSymbol = java.net.URLEncoder.encode(symbol, StandardCharsets.UTF_8);
+            // Dynamic strike count to prevent "Body buffer overflow" on heavy indices like SPX
+            int strikeCount = (symbol.startsWith("$") || symbol.equals("SPY") || symbol.equals("QQQ") || symbol.equals("IWM")) ? 50 : 100;
+
             String url = BASE_URL + "/chains"
                     + "?symbol=" + encodedSymbol
                     + "&contractType=ALL"
-                    + "&strikeCount=150"          // 150 strikes to capture broader levels for stocks
+                    + "&strikeCount=" + strikeCount
                     + "&includeUnderlyingQuote=true"; // embeds spot price in response
 
             HttpRequest request = HttpRequest.newBuilder()
