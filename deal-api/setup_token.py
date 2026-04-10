@@ -75,7 +75,7 @@ def update_database(refresh_token, access_token):
     except Exception as e:
         print(f"❌ Database sync failed: {e}")
 
-REDIRECT_URI = 'https://127.0.0.1'
+REDIRECT_URI = 'https://deal-aggregator-production.up.railway.app/auth/schwab/callback'
 
 print("=" * 50)
 print("  SCHWAB TOKEN SETUP (Auto-Detect .env)")
