@@ -499,7 +499,7 @@ public class SchwabApiService {
             String url = BASE_URL + "/chains"
                     + "?symbol=" + encodedSymbol
                     + "&contractType=ALL"
-                    + "&strikeCount=50"          // 50 strikes each side of ATM
+                    + "&strikeCount=150"          // 150 strikes to capture broader levels for stocks
                     + "&includeUnderlyingQuote=true"; // embeds spot price in response
 
             HttpRequest request = HttpRequest.newBuilder()

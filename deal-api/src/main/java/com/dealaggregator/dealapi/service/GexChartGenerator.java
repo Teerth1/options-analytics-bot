@@ -59,11 +59,35 @@ public class GexChartGenerator {
         }
     }
 
+    private boolean isIndex(String symbol) {
+        String upper = symbol.toUpperCase();
+        return upper.contains("SPX") || upper.contains("NDX") || upper.contains("RUT") 
+            || upper.equals("SPY") || upper.equals("QQQ") || upper.equals("IWM")
+            || upper.startsWith("$");
+    }
+
     private byte[] generateHorizontalChart(GexResult result) {
         try {
-            double range = result.spotPrice * 0.020;
+            boolean index = isIndex(result.symbol);
+            double rangePct = index ? 0.020 : 0.120; // 2% for indices, 12% for stocks
+            double range = result.spotPrice * rangePct;
+            
+            double minV = result.spotPrice - range;
+            double maxV = result.spotPrice + range;
+
+            // Ensure walls are visible if they are within a reasonable "outer bound" (e.g. 40%)
+            if (result.callWall > result.spotPrice && result.callWall < result.spotPrice * 1.4) {
+                maxV = Math.max(maxV, result.callWall + (result.spotPrice * 0.01));
+            }
+            if (result.putWall < result.spotPrice && result.putWall > result.spotPrice * 0.6) {
+                minV = Math.min(minV, result.putWall - (result.spotPrice * 0.01));
+            }
+
+            final double finalMin = minV;
+            final double finalMax = maxV;
+
             java.util.List<GexRow> filteredRows = result.rows.stream()
-                .filter(r -> Math.abs(r.strike - result.spotPrice) <= range)
+                .filter(r -> r.strike >= finalMin && r.strike <= finalMax)
                 .collect(java.util.stream.Collectors.toList());
 
             if (filteredRows.isEmpty()) {
@@ -216,9 +240,25 @@ public class GexChartGenerator {
 
     private byte[] generateVerticalChart(GexResult result) {
         try {
-            double range = result.spotPrice * 0.020;
+            boolean index = isIndex(result.symbol);
+            double rangePct = index ? 0.020 : 0.120;
+            double range = result.spotPrice * rangePct;
+
+            double minV = result.spotPrice - range;
+            double maxV = result.spotPrice + range;
+
+            if (result.callWall > result.spotPrice && result.callWall < result.spotPrice * 1.4) {
+                maxV = Math.max(maxV, result.callWall + (result.spotPrice * 0.01));
+            }
+            if (result.putWall < result.spotPrice && result.putWall > result.spotPrice * 0.6) {
+                minV = Math.min(minV, result.putWall - (result.spotPrice * 0.01));
+            }
+
+            final double finalMin = minV;
+            final double finalMax = maxV;
+
             java.util.List<GexRow> filteredRows = result.rows.stream()
-                .filter(r -> Math.abs(r.strike - result.spotPrice) <= range)
+                .filter(r -> r.strike >= finalMin && r.strike <= finalMax)
                 .collect(java.util.stream.Collectors.toList());
 
             if (filteredRows.isEmpty()) {
