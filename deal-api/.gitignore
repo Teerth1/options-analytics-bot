@@ -41,3 +41,6 @@ python/mean_reversion/package/
 python/mean_reversion/lambda_deployment.zip
 __pycache__/
 *.pyc
+
+# Never commit OAuth tokens (any location)
+**/schwab_tokens.json
